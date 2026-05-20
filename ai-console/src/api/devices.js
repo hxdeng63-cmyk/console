@@ -1,0 +1,15 @@
+import request from './index'
+
+export const getDevices = (params) => request.get('/devices', { params })
+export const getDevice = (id) => request.get(`/devices/${id}`)
+export const createDevice = (data) => request.post('/devices', data)
+export const updateDevice = (id, data) => request.put(`/devices/${id}`, data)
+export const patchDevice = (id, data) => request.patch(`/devices/${id}`, data)
+export const deleteDevice = (id) => request.delete(`/devices/${id}`)
+export const getDeviceStats = (id) => request.get(`/devices/${id}/stats`)
+export const authorizeDevice = (id, data) => request.post(`/devices/${id}/auth`, data)
+export const revokeDeviceAuth = (id) => request.delete(`/devices/${id}/auth`)
+export const getDeviceVideoSources = (id, params) => request.get(`/devices/${id}/video-sources`, { params })
+export const batchDeleteDevices = (data) => request.post('/devices/batch-delete', data)
+export const batchUpdateDevices = (data) => request.put('/devices/batch-update', data)
+export const exportDevices = (params) => request.get('/devices/export', { params, responseType: 'blob' })

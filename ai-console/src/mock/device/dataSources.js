@@ -1,0 +1,17 @@
+export const dataSourceList = Object.freeze([
+  { id: 1, name: 'G6高速入口摄像头', streamType: 'RTSP', url: 'rtsp://192.168.10.1:554/stream1', deviceId: 'D001', status: '在线', resolution: '1920x1080', fps: 25 },
+  { id: 2, name: 'S201省道卡口', streamType: 'RTSP', url: 'rtsp://192.168.10.2:554/stream2', deviceId: 'D002', status: '在线', resolution: '1920x1080', fps: 25 },
+  { id: 3, name: '火车站广场监控', streamType: 'RTSP', url: 'rtsp://192.168.10.3:554/stream3', deviceId: 'D003', status: '在线', resolution: '2560x1440', fps: 30 },
+  { id: 4, name: '汽车站入口', streamType: 'RTSP', url: 'rtsp://192.168.10.4:554/stream4', deviceId: 'D004', status: '在线', resolution: '1920x1080', fps: 25 },
+  { id: 5, name: '机场航站楼', streamType: 'RTSP', url: 'rtsp://192.168.10.5:554/stream5', deviceId: 'D005', status: '在线', resolution: '2560x1440', fps: 30 },
+  { id: 6, name: '海东市医院门口', streamType: 'RTSP', url: 'rtsp://192.168.10.6:554/stream6', deviceId: 'D006', status: '离线', resolution: '1920x1080', fps: 25 },
+  { id: 7, name: '政府大楼门口', streamType: 'RTSP', url: 'rtsp://192.168.10.7:554/stream7', deviceId: 'D007', status: '在线', resolution: '1920x1080', fps: 25 },
+  { id: 8, name: '商业中心广场', streamType: 'RTSP', url: 'rtsp://192.168.10.8:554/stream8', deviceId: 'D008', status: '在线', resolution: '2560x1440', fps: 30 },
+  { id: 9, name: '学校门口', streamType: 'RTSP', url: 'rtsp://192.168.10.9:554/stream9', deviceId: 'D009', status: '在线', resolution: '1920x1080', fps: 25 },
+  { id: 10, name: '银行网点', streamType: 'RTSP', url: 'rtsp://192.168.10.10:554/stream10', deviceId: 'D010', status: '在线', resolution: '1920x1080', fps: 25 },
+  { id: 11, name: '小区出入口', streamType: 'RTSP', url: 'rtsp://192.168.10.11:554/stream11', deviceId: 'D011', status: '在线', resolution: '1920x1080', fps: 25 },
+  { id: 12, name: '停车场入口', streamType: 'RTSP', url: 'rtsp://192.168.10.12:554/stream12', deviceId: 'D012', status: '在线', resolution: '1920x1080', fps: 25 },
+  { id: 13, name: '十字路口1', streamType: 'RTSP', url: 'rtsp://192.168.10.13:554/stream13', deviceId: 'D013', status: '在线', resolution: '2560x1440', fps: 30 },
+  { id: 14, name: '十字路口2', streamType: 'RTSP', url: 'rtsp://192.168.10.14:554/stream14', deviceId: 'D014', status: '在线', resolution: '2560x1440', fps: 30 },
+  { id: 15, name: '物流园门口', streamType: 'RTSP', url: 'rtsp://192.168.10.15:554/stream15', deviceId: 'D015', status: '离线', resolution: '1920x1080', fps: 25 },
+])

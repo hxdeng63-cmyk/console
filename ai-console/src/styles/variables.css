@@ -1,0 +1,33 @@
+:root {
+  --bg-primary: #000d1a;
+  --bg-secondary: #001529;
+  --bg-card: #01233c;
+  --primary-color: #00E5FF;
+  --text-primary: rgba(180, 210, 235, 0.9);
+  --text-secondary: rgba(200, 230, 255, 0.65);
+  --border-color: #1f3a5f;
+
+  /* 科技风增强变量 */
+  --glow-primary: 0 0 8px rgba(24, 144, 255, 0.6), 0 0 20px rgba(24, 144, 255, 0.2);
+  --glow-primary-sm: 0 0 4px rgba(24, 144, 255, 0.5);
+  --glow-border: rgba(24, 144, 255, 0.4);
+  --scan-line: rgba(0, 180, 255, 0.025);
+  --tech-accent: #00d4ff;
+  --tech-accent-dim: rgba(0, 212, 255, 0.15);
+
+  --el-color-primary: #00E5FF;
+  --el-bg-color: #000d1a;
+  --el-bg-color-page: #000d1a;
+  --el-bg-color-overlay: #001529;
+  --el-text-color-primary: rgba(180, 210, 235, 0.9);
+  --el-text-color-regular: rgba(200, 230, 255, 0.85);
+  --el-text-color-secondary: rgba(200, 230, 255, 0.65);
+  --el-text-color-placeholder: rgba(200, 230, 255, 0.4);
+  --el-border-color: #1f3a5f;
+  --el-border-color-light: #1a3a5a;
+  --el-fill-color-blank: #001529;
+  --el-color-danger: #FF006E;
+  --el-color-warning: #FFB800;
+  --el-color-success: #36d68a;
+  --el-color-info: #6b8cae;
+}

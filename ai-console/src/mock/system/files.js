@@ -1,0 +1,17 @@
+export const fileList = Object.freeze([
+  { id: 1, fileName: '监控录像_20240310_083000.mp4', fileSize: '256MB', duration: '00:15:30', deviceId: 'D001', deviceName: 'G6高速入口摄像头', createTime: '2024-03-10 08:30:00', fileType: 'mp4' },
+  { id: 2, fileName: '监控录像_20240310_090000.mp4', fileSize: '512MB', duration: '00:31:00', deviceId: 'D002', deviceName: 'S201省道卡口', createTime: '2024-03-10 09:00:00', fileType: 'mp4' },
+  { id: 3, fileName: '人脸抓拍_20240310_091500.jpg', fileSize: '2.5MB', duration: null, deviceId: 'D007', deviceName: '政府大楼门口', createTime: '2024-03-10 09:15:00', fileType: 'jpg' },
+  { id: 4, fileName: '车牌抓拍_20240310_093000.jpg', fileSize: '1.8MB', duration: null, deviceId: 'D013', deviceName: '十字路口1', createTime: '2024-03-10 09:30:00', fileType: 'jpg' },
+  { id: 5, fileName: '监控录像_20240310_100000.mp4', fileSize: '320MB', duration: '00:19:20', deviceId: 'D003', deviceName: '火车站广场监控', createTime: '2024-03-10 10:00:00', fileType: 'mp4' },
+  { id: 6, fileName: '事件告警_20240310_101500.mp4', fileSize: '128MB', duration: '00:07:45', deviceId: 'D005', deviceName: '机场航站楼', createTime: '2024-03-10 10:15:00', fileType: 'mp4' },
+  { id: 7, fileName: '监控录像_20240310_110000.mp4', fileSize: '480MB', duration: '00:29:10', deviceId: 'D008', deviceName: '商业中心广场', createTime: '2024-03-10 11:00:00', fileType: 'mp4' },
+  { id: 8, fileName: '人脸抓拍_20240310_111500.jpg', fileSize: '2.3MB', duration: null, deviceId: 'D009', deviceName: '学校门口', createTime: '2024-03-10 11:15:00', fileType: 'jpg' },
+  { id: 9, fileName: '车牌抓拍_20240310_113000.jpg', fileSize: '1.6MB', duration: null, deviceId: 'D014', deviceName: '十字路口2', createTime: '2024-03-10 11:30:00', fileType: 'jpg' },
+  { id: 10, fileName: '监控录像_20240310_120000.mp4', fileSize: '640MB', duration: '00:38:45', deviceId: 'D010', deviceName: '银行网点', createTime: '2024-03-10 12:00:00', fileType: 'mp4' },
+  { id: 11, fileName: '事件告警_20240310_121500.mp4', fileSize: '96MB', duration: '00:05:50', deviceId: 'D006', deviceName: '海东市医院门口', createTime: '2024-03-10 12:15:00', fileType: 'mp4' },
+  { id: 12, fileName: '监控录像_20240310_130000.mp4', fileSize: '384MB', duration: '00:23:20', deviceId: 'D013', deviceName: '十字路口1', createTime: '2024-03-10 13:00:00', fileType: 'mp4' },
+  { id: 13, fileName: '人脸抓拍_20240310_131500.jpg', fileSize: '2.7MB', duration: null, deviceId: 'D003', deviceName: '火车站广场监控', createTime: '2024-03-10 13:15:00', fileType: 'jpg' },
+  { id: 14, fileName: '车牌抓拍_20240310_133000.jpg', fileSize: '1.9MB', duration: null, deviceId: 'D005', deviceName: '机场航站楼', createTime: '2024-03-10 13:30:00', fileType: 'jpg' },
+  { id: 15, fileName: '监控录像_20240310_140000.mp4', fileSize: '512MB', duration: '00:31:00', deviceId: 'D014', deviceName: '十字路口2', createTime: '2024-03-10 14:00:00', fileType: 'mp4' },
+])
