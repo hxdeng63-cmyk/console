@@ -22,8 +22,8 @@
       <el-table-column prop="validity" label="有效期" min-width="200" />
       <el-table-column label="操作" width="150" fixed="right">
         <template #default="{ row }">
-          <el-button link style="color: #00E5FF; background: rgba(0, 229, 255, 0.15); border: 1px solid rgba(0, 229, 255, 0.4); border-radius: 4px; padding: 2px 8px; font-weight: 600; text-shadow: none;" size="small" @click="openModal('edit', row)">编辑</el-button>
-          <el-button link style="color: #FF006E; background: rgba(255, 0, 110, 0.15); border: 1px solid rgba(255, 0, 110, 0.4); border-radius: 4px; padding: 2px 8px; font-weight: 600; text-shadow: none;" size="small" @click="handleDelete(row)">删除</el-button>
+          <el-button link class="action-edit" size="small" @click="openModal('edit', row)">编辑</el-button>
+          <el-button link class="action-delete" size="small" @click="handleDelete(row)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -277,6 +277,38 @@ const handleDelete = (row: LicenseItem) => {
   display: flex;
   justify-content: flex-end;
   margin-top: 16px;
+}
+
+.action-edit {
+  color: #00E5FF;
+  background: rgba(0, 229, 255, 0.15);
+  border: 1px solid rgba(0, 229, 255, 0.4);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-weight: 600;
+  text-shadow: none;
+}
+
+.action-edit:hover {
+  color: #00FF88;
+  background: rgba(0, 229, 255, 0.25);
+  border-color: #00E5FF;
+}
+
+.action-delete {
+  color: #FF006E;
+  background: rgba(255, 0, 110, 0.15);
+  border: 1px solid rgba(255, 0, 110, 0.4);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-weight: 600;
+  text-shadow: none;
+}
+
+.action-delete:hover {
+  color: #FF4D6D;
+  background: rgba(255, 0, 110, 0.25);
+  border-color: #FF006E;
 }
 
 /* 链接按钮 - 高对比度样式 */

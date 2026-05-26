@@ -12,24 +12,24 @@
       </el-form-item>
       <el-form-item label="重要等级">
         <el-radio-group v-model="form.importanceLevel">
-          <el-radio label="低">低</el-radio>
-          <el-radio label="中">中</el-radio>
-          <el-radio label="高">高</el-radio>
+          <el-radio value="低">低</el-radio>
+          <el-radio value="中">中</el-radio>
+          <el-radio value="高">高</el-radio>
         </el-radio-group>
       </el-form-item>
       <el-form-item label="发送频率">
         <el-radio-group v-model="form.sendFrequency">
-          <el-radio label="立即">立即</el-radio>
-          <el-radio label="延时">延时</el-radio>
-          <el-radio label="定时">定时</el-radio>
+          <el-radio value="立即">立即</el-radio>
+          <el-radio value="延时">延时</el-radio>
+          <el-radio value="定时">定时</el-radio>
         </el-radio-group>
       </el-form-item>
       <el-form-item label="推送渠道">
         <el-checkbox-group v-model="form.pushChannels">
-          <el-checkbox label="微信">微信</el-checkbox>
-          <el-checkbox label="企业微信">企业微信</el-checkbox>
-          <el-checkbox label="钉钉">钉钉</el-checkbox>
-          <el-checkbox label="短信">短信</el-checkbox>
+          <el-checkbox value="微信">微信</el-checkbox>
+          <el-checkbox value="企业微信">企业微信</el-checkbox>
+          <el-checkbox value="钉钉">钉钉</el-checkbox>
+          <el-checkbox value="短信">短信</el-checkbox>
         </el-checkbox-group>
       </el-form-item>
       <el-form-item label="AppID" required>

@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="gb28181">
     <!-- SIP服务器配置 -->
     <el-card class="sip-card">
@@ -30,7 +30,7 @@
     </el-card>
 
     <!-- 平台列表 -->
-    <el-card class="platform-card">
+    <el-card class="platform-card" v-loading="platformLoading">
       <template #header>
         <div class="card-header">
           <span>平台列表</span>
@@ -57,8 +57,8 @@
         <el-table-column prop="transport" label="传输方式" width="100" align="center" />
         <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
-            <el-button link style="color: #00E5FF; background: rgba(0, 229, 255, 0.15); border: 1px solid rgba(0, 229, 255, 0.4); border-radius: 4px; padding: 2px 8px; font-weight: 600; text-shadow: none;" size="small" @click="openPlatformModal('edit', row)">编辑</el-button>
-            <el-button link style="color: #FF006E; background: rgba(255, 0, 110, 0.15); border: 1px solid rgba(255, 0, 110, 0.4); border-radius: 4px; padding: 2px 8px; font-weight: 600; text-shadow: none;" size="small" @click="handleDeletePlatform(row)">删除</el-button>
+            <el-button link class="action-edit" size="small" @click="openPlatformModal('edit', row)">编辑</el-button>
+            <el-button link class="action-delete" size="small" @click="handleDeletePlatform(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -76,7 +76,7 @@
     </el-card>
 
     <!-- 设备列表 -->
-    <el-card class="device-card">
+    <el-card class="device-card" v-loading="deviceLoading">
       <template #header>
         <div class="card-header">
           <span>设备列表</span>
@@ -108,8 +108,8 @@
         <el-table-column prop="port" label="端口" width="80" align="center" />
         <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
-            <el-button link style="color: #00E5FF; background: rgba(0, 229, 255, 0.15); border: 1px solid rgba(0, 229, 255, 0.4); border-radius: 4px; padding: 2px 8px; font-weight: 600; text-shadow: none;" size="small" @click="openDeviceModal('edit', row)">编辑</el-button>
-            <el-button link style="color: #FF006E; background: rgba(255, 0, 110, 0.15); border: 1px solid rgba(255, 0, 110, 0.4); border-radius: 4px; padding: 2px 8px; font-weight: 600; text-shadow: none;" size="small" @click="handleDeleteDevice(row)">删除</el-button>
+            <el-button link class="action-edit" size="small" @click="openDeviceModal('edit', row)">编辑</el-button>
+            <el-button link class="action-delete" size="small" @click="handleDeleteDevice(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -203,9 +203,25 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  getPlatforms,
+  createPlatform,
+  updatePlatform,
+  deletePlatform
+} from '@/api/platforms'
+import {
+  getDevices,
+  createDevice,
+  updateDevice,
+  deleteDevice
+} from '@/api/devices'
+
+// Loading states
+const platformLoading = ref(false)
+const deviceLoading = ref(false)
 
 // SIP配置
 const sipForm = reactive({
@@ -225,10 +241,7 @@ interface PlatformItem {
   transport: string
 }
 
-const platformList = ref<PlatformItem[]>([
-  { id: 1, name: '平台A', platformNo: 'PL001', enabled: true, sipIp: '192.168.1.10', gbDeviceNo: '34020000002000001', transport: 'UDP' },
-  { id: 2, name: '平台B', platformNo: 'PL002', enabled: false, sipIp: '192.168.1.11', gbDeviceNo: '34020000002000002', transport: 'TCP' },
-])
+const platformList = ref<PlatformItem[]>([])
 
 const platformPage = ref(1)
 const platformPageSize = ref(10)
@@ -251,10 +264,7 @@ interface DeviceItem {
   port: number
 }
 
-const deviceList = ref<DeviceItem[]>([
-  { id: 1, deviceModel: 'IPC-HFW', vendor: '海康', name: '摄像头01', deviceId: '34020000001310001', channelId: '34020000001310001', ip: '192.168.1.50', syncVideoSource: '是', port: 554 },
-  { id: 2, deviceModel: 'IPC-HFW', vendor: '海康', name: '摄像头02', deviceId: '34020000001310002', channelId: '34020000001310002', ip: '192.168.1.51', syncVideoSource: '否', port: 554 },
-])
+const deviceList = ref<DeviceItem[]>([])
 
 const devicePage = ref(1)
 const devicePageSize = ref(10)
@@ -311,6 +321,36 @@ const deviceRules = {
   deviceId: [{ required: true, message: '请输入deviceId', trigger: 'blur' }]
 }
 
+// Fetch data on mount
+const fetchPlatforms = async () => {
+  platformLoading.value = true
+  try {
+    const res = await getPlatforms()
+    platformList.value = res.items || res.list || res || []
+  } catch (error) {
+    // Error already handled by interceptor
+  } finally {
+    platformLoading.value = false
+  }
+}
+
+const fetchDevices = async () => {
+  deviceLoading.value = true
+  try {
+    const res = await getDevices()
+    deviceList.value = res.items || res.list || res || []
+  } catch (error) {
+    // Error already handled by interceptor
+  } finally {
+    deviceLoading.value = false
+  }
+}
+
+onMounted(() => {
+  fetchPlatforms()
+  fetchDevices()
+})
+
 // 事件处理
 const handleSaveSip = () => {
   ElMessage.success('SIP配置已保存')
@@ -336,23 +376,31 @@ const handlePlatformSubmit = async () => {
   const valid = await (platformFormRef.value as any).validate().catch(() => false)
   if (!valid) return
 
-  if (editingPlatformId.value) {
-    const idx = platformList.value.findIndex(item => item.id === editingPlatformId.value)
-    if (idx !== -1) Object.assign(platformList.value[idx], platformForm)
-    ElMessage.success('编辑成功')
-  } else {
-    platformList.value.push({ id: Date.now(), ...platformForm })
-    ElMessage.success('新增成功')
+  try {
+    if (editingPlatformId.value) {
+      await updatePlatform(editingPlatformId.value, platformForm)
+      ElMessage.success('编辑成功')
+    } else {
+      await createPlatform(platformForm)
+      ElMessage.success('新增成功')
+    }
+    platformDialogVisible.value = false
+    await fetchPlatforms()
+  } catch (error) {
+    // Error already handled by interceptor
   }
-  platformDialogVisible.value = false
 }
 
 const handleDeletePlatform = (row: PlatformItem) => {
   ElMessageBox.confirm('确定删除该平台吗？', '提示', { type: 'warning' })
-    .then(() => {
-      const idx = platformList.value.findIndex(item => item.id === row.id)
-      if (idx !== -1) platformList.value.splice(idx, 1)
-      ElMessage.success('删除成功')
+    .then(async () => {
+      try {
+        await deletePlatform(row.id)
+        ElMessage.success('删除成功')
+        await fetchPlatforms()
+      } catch (error) {
+        // Error already handled by interceptor
+      }
     })
     .catch(() => {})
 }
@@ -386,23 +434,31 @@ const handleDeviceSubmit = async () => {
   const valid = await (deviceFormRef.value as any).validate().catch(() => false)
   if (!valid) return
 
-  if (editingDeviceId.value) {
-    const idx = deviceList.value.findIndex(item => item.id === editingDeviceId.value)
-    if (idx !== -1) Object.assign(deviceList.value[idx], deviceForm)
-    ElMessage.success('编辑成功')
-  } else {
-    deviceList.value.push({ id: Date.now(), ...deviceForm, syncVideoSource: '否' })
-    ElMessage.success('新增成功')
+  try {
+    if (editingDeviceId.value) {
+      await updateDevice(editingDeviceId.value, deviceForm)
+      ElMessage.success('编辑成功')
+    } else {
+      await createDevice({ ...deviceForm, syncVideoSource: '否' })
+      ElMessage.success('新增成功')
+    }
+    deviceDialogVisible.value = false
+    await fetchDevices()
+  } catch (error) {
+    // Error already handled by interceptor
   }
-  deviceDialogVisible.value = false
 }
 
 const handleDeleteDevice = (row: DeviceItem) => {
   ElMessageBox.confirm('确定删除该设备吗？', '提示', { type: 'warning' })
-    .then(() => {
-      const idx = deviceList.value.findIndex(item => item.id === row.id)
-      if (idx !== -1) deviceList.value.splice(idx, 1)
-      ElMessage.success('删除成功')
+    .then(async () => {
+      try {
+        await deleteDevice(row.id)
+        ElMessage.success('删除成功')
+        await fetchDevices()
+      } catch (error) {
+        // Error already handled by interceptor
+      }
     })
     .catch(() => {})
 }
@@ -442,5 +498,37 @@ const handleDeleteDevice = (row: DeviceItem) => {
 :deep(.el-card__header) {
   padding: 12px 20px;
   background: rgba(255, 255, 255, 0.02);
+}
+
+.action-edit {
+  color: #00E5FF;
+  background: rgba(0, 229, 255, 0.15);
+  border: 1px solid rgba(0, 229, 255, 0.4);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-weight: 600;
+  text-shadow: none;
+}
+
+.action-edit:hover {
+  color: #00FF88;
+  background: rgba(0, 229, 255, 0.25);
+  border-color: #00E5FF;
+}
+
+.action-delete {
+  color: #FF006E;
+  background: rgba(255, 0, 110, 0.15);
+  border: 1px solid rgba(255, 0, 110, 0.4);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-weight: 600;
+  text-shadow: none;
+}
+
+.action-delete:hover {
+  color: #FF4D6D;
+  background: rgba(255, 0, 110, 0.25);
+  border-color: #FF006E;
 }
 </style>

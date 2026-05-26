@@ -30,7 +30,8 @@
       <el-button
         type="primary"
         size="large"
-        :disabled="!hasUpdate"
+        :disabled="!hasUpdate || loading"
+        :loading="loading"
         @click="openUpdateDialog"
       >
         <el-icon><Download /></el-icon>
@@ -129,9 +130,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Right, Download } from '@element-plus/icons-vue'
+import { getFirmwares } from '@/api/firmwares.js'
 
 interface LogItem {
   type: 'add' | 'optimize' | 'fix'
@@ -148,6 +150,8 @@ interface UpdateLog {
   color?: string
 }
 
+const loading = ref(false)
+
 // 当前版本（写死）
 const currentVersion = ref({
   version: 'v2.3.1',
@@ -155,56 +159,46 @@ const currentVersion = ref({
 })
 
 // 全部版本历史（从新到旧）
-const allVersions = ref([
-  {
-    version: 'v2.4.0',
-    date: '2024-05-18',
-    updateType: '功能更新+缺陷修复',
-    typeTag: 'warning',
-    status: '待更新',
-    statusTag: 'warning',
-    description: '新增ONVIF设备批量导入，优化视频流加载速度，修复设备离线同步异常和预警图片模糊问题'
-  },
-  {
-    version: 'v2.3.1',
-    date: '2024-04-15',
-    updateType: '缺陷修复',
-    typeTag: 'info',
-    status: '当前版本',
-    statusTag: 'success',
-    description: '修复GB28181设备接入超时问题，优化联动规则触发逻辑'
-  },
-  {
-    version: 'v2.3.0',
-    date: '2024-03-20',
-    updateType: '功能更新',
-    typeTag: 'success',
-    status: '已更新',
-    statusTag: 'info',
-    description: '新增智能联动模块，新增推送历史查询功能'
-  },
-  {
-    version: 'v2.2.5',
-    date: '2024-02-28',
-    updateType: '缺陷修复',
-    typeTag: 'info',
-    status: '已更新',
-    statusTag: 'info',
-    description: '修复设备树加载慢的问题，修复分页跳转异常'
-  },
-  {
-    version: 'v2.2.0',
-    date: '2024-01-15',
-    updateType: '功能更新',
-    typeTag: 'success',
-    status: '已更新',
-    statusTag: 'info',
-    description: '新增算法管理模块，支持算法同步与版本管理'
+const allVersions = ref<{
+  version: string
+  date: string
+  updateType: string
+  typeTag: string
+  status: string
+  statusTag: string
+  description: string
+  items?: { type: 'add' | 'optimize' | 'fix'; text: string }[]
+}[]>([])
+
+const fetchFirmwares = async () => {
+  loading.value = true
+  try {
+    const res: any = await getFirmwares({ page: 1, page_size: 100 })
+    const items = res?.items || res || []
+    allVersions.value = items.map((item: any) => ({
+      version: item.version || item.name || '',
+      date: item.release_date || item.date || '',
+      updateType: item.update_type || '功能更新',
+      typeTag: item.type_tag || 'success',
+      status: item.status || '已更新',
+      statusTag: item.status_tag || 'info',
+      description: item.description || '',
+      items: item.items || []
+    }))
+  } catch (error) {
+    console.error('Failed to load firmwares:', error)
+    ElMessage.error('加载固件版本失败')
+  } finally {
+    loading.value = false
   }
-])
+}
+
+onMounted(() => {
+  fetchFirmwares()
+})
 
 // 最新版本
-const latestVersion = computed(() => allVersions.value[0])
+const latestVersion = computed(() => allVersions.value[0] || { version: '', date: '' })
 
 // 是否有更新
 const hasUpdate = computed(() => latestVersion.value.version !== currentVersion.value.version)
@@ -218,62 +212,15 @@ const updateCount = computed(() => {
 
 // 更新日志（时间线）
 const updateLogs = computed(() => {
-  const logs: UpdateLog[] = [
-    {
-      version: 'v2.4.0',
-      date: '2024-05-18',
-      isLatest: true,
-      type: 'primary',
-      color: '#00E5FF',
-      items: [
-        { type: 'add', text: '支持ONVIF设备批量导入' },
-        { type: 'optimize', text: '提升视频流加载速度30%' },
-        { type: 'fix', text: '设备离线状态同步异常问题' },
-        { type: 'fix', text: '预警事件图片显示模糊问题' }
-      ]
-    },
-    {
-      version: 'v2.3.1',
-      date: '2024-04-15',
-      isCurrent: true,
-      type: 'success',
-      color: '#00FF88',
-      items: [
-        { type: 'fix', text: 'GB28181设备接入超时问题' },
-        { type: 'optimize', text: '联动规则触发逻辑' }
-      ]
-    },
-    {
-      version: 'v2.3.0',
-      date: '2024-03-20',
-      type: '',
-      color: '#909399',
-      items: [
-        { type: 'add', text: '智能联动模块' },
-        { type: 'add', text: '推送历史查询' }
-      ]
-    },
-    {
-      version: 'v2.2.5',
-      date: '2024-02-28',
-      type: '',
-      color: '#909399',
-      items: [
-        { type: 'fix', text: '设备树加载慢的问题' },
-        { type: 'fix', text: '分页跳转异常' }
-      ]
-    },
-    {
-      version: 'v2.2.0',
-      date: '2024-01-15',
-      type: '',
-      color: '#909399',
-      items: [
-        { type: 'add', text: '算法管理模块' },
-        { type: 'add', text: '算法同步与版本管理' }
-      ]
-    }
-  ]
+  const logs: UpdateLog[] = allVersions.value.map((v, index) => ({
+    version: v.version,
+    date: v.date,
+    isLatest: index === 0,
+    isCurrent: v.version === currentVersion.value.version,
+    type: index === 0 ? 'primary' : v.version === currentVersion.value.version ? 'success' : '',
+    color: index === 0 ? '#00E5FF' : v.version === currentVersion.value.version ? '#00FF88' : '#909399',
+    items: v.items || []
+  }))
   return logs
 })
 

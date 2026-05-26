@@ -45,7 +45,7 @@
       <el-table-column prop="sendDate" label="发送日期" width="160" align="center" />
       <el-table-column label="操作" width="100" fixed="right">
         <template #default="{ row }">
-          <el-button link style="color: #00E5FF; background: rgba(0, 229, 255, 0.15); border: 1px solid rgba(0, 229, 255, 0.4); border-radius: 4px; padding: 2px 8px; font-weight: 600; text-shadow: none;" size="small" @click="handleView(row)">查看</el-button>
+          <el-button link class="action-edit" size="small" @click="handleView(row)">查看</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -201,5 +201,21 @@ const handleView = (row: PushRecord) => {
   display: flex;
   justify-content: flex-end;
   margin-top: 16px;
+}
+
+.action-edit {
+  color: #00E5FF;
+  background: rgba(0, 229, 255, 0.15);
+  border: 1px solid rgba(0, 229, 255, 0.4);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-weight: 600;
+  text-shadow: none;
+}
+
+.action-edit:hover {
+  color: #00FF88;
+  background: rgba(0, 229, 255, 0.25);
+  border-color: #00E5FF;
 }
 </style>

@@ -135,7 +135,7 @@
             <div class="device-list">
               <div v-if="filteredDevices.length === 0" class="empty-text">暂无数据</div>
               <el-checkbox-group v-else v-model="form.selectedDevices">
-                <el-checkbox v-for="device in filteredDevices" :key="device" :label="device">{{ device }}</el-checkbox>
+                <el-checkbox v-for="device in filteredDevices" :key="device" :value="device">{{ device }}</el-checkbox>
               </el-checkbox-group>
             </div>
           </div>
@@ -144,17 +144,17 @@
         <el-form-item label="推送渠道" prop="pushChannels">
           <div class="push-channels">
             <el-checkbox-group v-model="form.pushChannels">
-              <el-checkbox label="钉钉">钉钉</el-checkbox>
-              <el-checkbox label="钉钉企业群">钉钉企业群</el-checkbox>
-              <el-checkbox label="企业微信">企业微信</el-checkbox>
-              <el-checkbox label="系统提示音">系统提示音</el-checkbox>
-              <el-checkbox label="API接口推送">API接口推送</el-checkbox>
-              <el-checkbox label="摄像机控制">摄像机控制</el-checkbox>
-              <el-checkbox label="定制推送渠道">定制推送渠道</el-checkbox>
-              <el-checkbox label="Kafka">Kafka</el-checkbox>
-              <el-checkbox label="OA推送">OA推送</el-checkbox>
-              <el-checkbox label="语音播报">语音播报</el-checkbox>
-              <el-checkbox label="声光报警">声光报警</el-checkbox>
+              <el-checkbox value="钉钉">钉钉</el-checkbox>
+              <el-checkbox value="钉钉企业群">钉钉企业群</el-checkbox>
+              <el-checkbox value="企业微信">企业微信</el-checkbox>
+              <el-checkbox value="系统提示音">系统提示音</el-checkbox>
+              <el-checkbox value="API接口推送">API接口推送</el-checkbox>
+              <el-checkbox value="摄像机控制">摄像机控制</el-checkbox>
+              <el-checkbox value="定制推送渠道">定制推送渠道</el-checkbox>
+              <el-checkbox value="Kafka">Kafka</el-checkbox>
+              <el-checkbox value="OA推送">OA推送</el-checkbox>
+              <el-checkbox value="语音播报">语音播报</el-checkbox>
+              <el-checkbox value="声光报警">声光报警</el-checkbox>
             </el-checkbox-group>
           </div>
         </el-form-item>
@@ -173,6 +173,8 @@ import { ref, computed, reactive, onMounted } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getLinkageRules, createLinkageRule, updateLinkageRule, deleteLinkageRule, enableLinkageRule, disableLinkageRule } from '@/api/linkage-rules'
+import { getAlgorithms } from '@/api/algorithms'
+import { getEventTypes } from '@/api/event-types'
 
 interface RuleItem {
   id: number
@@ -189,12 +191,53 @@ interface RuleItem {
 
 const loading = ref(false)
 const tableData = ref<RuleItem[]>([])
+const algoNameMap = ref<Map<number, string>>(new Map())
+const eventNameMap = ref<Map<number, string>>(new Map())
+
+const mapLevel = (level: number): string => {
+  if (level >= 4) return '高'
+  if (level >= 3) return '中'
+  return '低'
+}
+
+const mapStatus = (status: string): boolean => status === 'active'
+
+const mapCompliant = (isCompliant: string | null): boolean => isCompliant === 'true'
 
 onMounted(async () => {
   loading.value = true
   try {
-    const data = await getLinkageRules()
-    tableData.value = data.items || data
+    const [linkageData, algoData, eventData] = await Promise.all([
+      getLinkageRules(),
+      getAlgorithms(),
+      getEventTypes()
+    ])
+
+    const aMap = new Map<number, string>()
+    for (const algo of algoData.items || algoData || []) {
+      aMap.set(algo.id, algo.name)
+    }
+    algoNameMap.value = aMap
+
+    const eMap = new Map<number, string>()
+    for (const ev of eventData.items || eventData || []) {
+      eMap.set(ev.id, ev.name)
+    }
+    eventNameMap.value = eMap
+
+    const rawRules = linkageData.items || linkageData || []
+    tableData.value = rawRules.map((item: any) => ({
+      id: item.id,
+      status: mapStatus(item.status),
+      ruleName: item.rule_name || '',
+      level: mapLevel(item.level),
+      algorithm: aMap.get(item.algorithm_id) || String(item.algorithm_id || ''),
+      event: eMap.get(item.event_type_id) || String(item.event_type_id || ''),
+      compliant: mapCompliant(item.is_compliant),
+      unit: item.unit || '',
+      pushChannels: item.push_channels || [],
+      selectedDevices: item.selected_devices || []
+    }))
   } catch (error) {
     console.error('Failed to load linkage rules:', error)
   } finally {
@@ -234,11 +277,11 @@ const onStatusChange = async (row: RuleItem) => {
 }
 
 const deviceSearch = ref('')
-const allDevices = ['白马寺隧道', '大古城隧道', '老鸦峡1号隧道', '老鸦峡2号隧道', '岘子隧道', '浪塘1号隧道', '浪塘3号隧道', '公哇岭隧道']
+const allDevices = ref<string[]>([])
 
 const filteredDevices = computed(() => {
-  if (!deviceSearch.value) return allDevices
-  return allDevices.filter(d => d.includes(deviceSearch.value))
+  if (!deviceSearch.value) return allDevices.value
+  return allDevices.value.filter(d => d.includes(deviceSearch.value))
 })
 
 const dialogVisible = ref(false)

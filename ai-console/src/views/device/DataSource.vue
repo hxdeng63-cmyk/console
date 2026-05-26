@@ -21,7 +21,7 @@
     </div>
 
     <!-- 表格 -->
-    <div class="table-wrapper">
+    <div class="table-wrapper" v-loading="loading">
       <el-table :data="pagedData" border stripe>
         <el-table-column prop="name" label="名称" min-width="160" show-overflow-tooltip />
         <el-table-column prop="status" label="状态" width="70" align="center">
@@ -225,9 +225,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive } from 'vue'
+import { ref, computed, reactive, onMounted } from 'vue'
 import { Plus, DocumentCopy } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  getDataSources,
+  createDataSource,
+  updateDataSource,
+  deleteDataSource
+} from '@/api/data-sources'
 
 interface DataSourceItem {
   id: number
@@ -254,21 +260,8 @@ const searchForm = reactive({
   accessType: ''
 })
 
-// 与用户管理组织关联的 mock 数据 — 海东分公司 / 西宁分公司
-const tableData = ref<DataSourceItem[]>([
-  { id: 1,  name: 'S201海东分公司K228+300下行(道路沿线)',   status: '在线', rtspUrl: 'rtsp://admin:admin12345@63.81.10.1:554/stream1',  pushUrl: 'rtsp://172.17.0.1:8554/live/0a68f0f6a3564c46934041a82d24bb37', accessType: '本地', longitude: '102.1041', latitude: '36.5012', dataSourceType: '设备',     region: 'S201', org: '海东分公司', device: '摄像头A01', setting: '-', remark: '-', memoryUsage: 45, diskSize: '1TB',   diskUsage: 62 },
-  { id: 2,  name: 'S201海东分公司K199+650上行(道路沿线)',   status: '在线', rtspUrl: 'rtsp://admin:admin12345@63.81.10.2:554/stream1',  pushUrl: 'rtsp://172.17.0.1:8554/live/656ce5c19d7942b1b7b397948ca9b2ed', accessType: '本地', longitude: '102.0856', latitude: '36.4834', dataSourceType: '设备',     region: 'S201', org: '海东分公司', device: '摄像头A02', setting: '-', remark: '-', memoryUsage: 52, diskSize: '1TB',   diskUsage: 58 },
-  { id: 3,  name: 'G213策磨高速乐化路段K16+250上行',        status: '在线', rtspUrl: 'rtsp://admin:LHGL2022..@63.86.10.3:554/stream1', pushUrl: 'rtsp://172.17.0.1:8554/live/6ab4192028584f138327e13bf69f8b45', accessType: '本地', longitude: '102.2031', latitude: '36.5610', dataSourceType: '数据源',   region: 'G213', org: '海东分公司', device: '雷达R01',  setting: '-', remark: '隧道入口', memoryUsage: 72, diskSize: '2TB',   diskUsage: 45 },
-  { id: 4,  name: 'G213策磨高速乐化路段K10+150上行',        status: '在线', rtspUrl: 'rtsp://admin:LHGL2022..@63.86.10.4:554/stream1', pushUrl: 'rtsp://172.17.0.1:8554/live/5954002036b2402ea5e9b7d815753a66', accessType: 'RTSP',  longitude: '102.1654', latitude: '36.5448', dataSourceType: '数据源',   region: 'G213', org: '海东分公司', device: '雷达R02',  setting: '-', remark: '互通立交', memoryUsage: 68, diskSize: '2TB',   diskUsage: 41 },
-  { id: 5,  name: 'G213策磨高速乐化路段K9+045下行',         status: '离线', rtspUrl: 'rtsp://admin:LHGL2022..@63.86.10.5:554/stream1', pushUrl: 'rtsp://172.17.0.1:8554/live/ad9349b5ddc8404ea562526037c287dc', accessType: 'RTSP',  longitude: '102.1523', latitude: '36.5380', dataSourceType: '数据源',   region: 'G213', org: '海东分公司', device: '雷达R03',  setting: '-', remark: '急弯路段', memoryUsage: 91, diskSize: '500GB', diskUsage: 88 },
-  { id: 6,  name: 'S201海东分公司K195+700上行(道路沿线)',   status: '在线', rtspUrl: 'rtsp://admin:admin12345@63.81.10.6:554/stream1',  pushUrl: 'rtsp://172.17.0.1:8554/live/ab9fe5bd7cfd43cf85805bbf89aa40b2', accessType: '本地', longitude: '102.0612', latitude: '36.4710', dataSourceType: '设备',     region: 'S201', org: '海东分公司', device: '摄像头A03', setting: '-', remark: '-', memoryUsage: 38, diskSize: '1TB',   diskUsage: 55 },
-  { id: 7,  name: 'G213策磨高速乐化路段K8+150下行',         status: '在线', rtspUrl: 'rtsp://admin:LHGL2022..@63.86.10.7:554/stream1', pushUrl: 'rtsp://172.17.0.1:8554/live/df0a0cd5999c46f79c64fe559fa54c12', accessType: 'RTSP',  longitude: '102.1398', latitude: '36.5324', dataSourceType: '数据源',   region: 'G213', org: '海东分公司', device: '雷达R04',  setting: '-', remark: '-', memoryUsage: 55, diskSize: '2TB',   diskUsage: 35 },
-  { id: 8,  name: 'S201西宁分公司K45+200上行(道路沿线)',     status: '在线', rtspUrl: 'rtsp://admin:xn12345@63.82.20.1:554/stream1',    pushUrl: 'rtsp://172.17.0.1:8554/live/c8a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5', accessType: '本地', longitude: '101.7742', latitude: '36.6215', dataSourceType: '设备',     region: 'S201', org: '西宁分公司', device: '摄像头B01', setting: '-', remark: '-', memoryUsage: 60, diskSize: '1TB',   diskUsage: 72 },
-  { id: 9,  name: 'S201西宁分公司K38+600下行(道路沿线)',     status: '在线', rtspUrl: 'rtsp://admin:xn12345@63.82.20.2:554/stream1',    pushUrl: 'rtsp://172.17.0.1:8554/live/d5c4b3a2f1e0987654321098abcdef01', accessType: '本地', longitude: '101.6251', latitude: '36.5830', dataSourceType: '设备',     region: 'S201', org: '西宁分公司', device: '摄像头B02', setting: '-', remark: '-', memoryUsage: 42, diskSize: '1TB',   diskUsage: 51 },
-  { id: 10, name: 'G213策磨高速西宁段K89+100下行',          status: '离线', rtspUrl: 'rtsp://admin:xn213@63.86.20.3:554/stream1',      pushUrl: 'rtsp://172.17.0.1:8554/live/f1e2d3c4b5a69788756453a2b1c0d9e8', accessType: 'RTSP',  longitude: '101.8912', latitude: '36.6500', dataSourceType: '数据源',   region: 'G213', org: '西宁分公司', device: '雷达R05',  setting: '-', remark: '隧道出口', memoryUsage: 85, diskSize: '500GB', diskUsage: 93 },
-  { id: 11, name: '西宁分公司环城高速K120+500上行',          status: '在线', rtspUrl: 'rtsp://admin:xncity@63.82.20.4:554/stream1',     pushUrl: 'rtsp://172.17.0.1:8554/live/a1b2c3d4e5f6789012345678abcdef01', accessType: 'GB28181', longitude: '101.7520', latitude: '36.6088', dataSourceType: '数据源',   region: 'G213', org: '西宁分公司', device: '球机D01',  setting: '-', remark: '城市入口', memoryUsage: 33, diskSize: '4TB',   diskUsage: 28 },
-  { id: 12, name: '西宁分公司环城高速K115+300下行',          status: '在线', rtspUrl: 'rtsp://admin:xncity@63.82.20.5:554/stream1',     pushUrl: 'rtsp://172.17.0.1:8554/live/0123456789abcdef0123456789abcdef', accessType: 'ONVIF',  longitude: '101.6813', latitude: '36.5892', dataSourceType: '数据源',   region: 'G213', org: '西宁分公司', device: '球机D02',  setting: '-', remark: '-', memoryUsage: 28, diskSize: '4TB',   diskUsage: 22 },
-])
+const tableData = ref<DataSourceItem[]>([])
+const loading = ref(false)
 
 const currentPage = ref(1)
 const pageSize = ref(10)
@@ -347,30 +340,54 @@ const openModal = (type: 'add' | 'edit', row?: DataSourceItem) => {
   dialogVisible.value = true
 }
 
+const fetchData = async () => {
+  loading.value = true
+  try {
+    const res = await getDataSources()
+    tableData.value = res.data || []
+  } catch (err) {
+    ElMessage.error('获取数据源列表失败')
+  } finally {
+    loading.value = false
+  }
+}
+
 const handleSubmit = async () => {
   const valid = await (formRef.value as any).validate().catch(() => false)
   if (!valid) return
 
-  if (editingId.value) {
-    const idx = tableData.value.findIndex(item => item.id === editingId.value)
-    if (idx !== -1) Object.assign(tableData.value[idx], form)
-    ElMessage.success('编辑成功')
-  } else {
-    tableData.value.push({ id: Date.now(), ...form })
-    ElMessage.success('新增成功')
+  try {
+    if (editingId.value) {
+      await updateDataSource(editingId.value, form)
+      ElMessage.success('编辑成功')
+    } else {
+      await createDataSource(form)
+      ElMessage.success('新增成功')
+    }
+    dialogVisible.value = false
+    await fetchData()
+  } catch (err) {
+    ElMessage.error(editingId.value ? '编辑失败' : '新增失败')
   }
-  dialogVisible.value = false
 }
 
 const handleDelete = (row: DataSourceItem) => {
   ElMessageBox.confirm('确定删除该数据源吗？', '提示', { type: 'warning' })
-    .then(() => {
-      const idx = tableData.value.findIndex(item => item.id === row.id)
-      if (idx !== -1) tableData.value.splice(idx, 1)
-      ElMessage.success('删除成功')
+    .then(async () => {
+      try {
+        await deleteDataSource(row.id)
+        ElMessage.success('删除成功')
+        await fetchData()
+      } catch (err) {
+        ElMessage.error('删除失败')
+      }
     })
     .catch(() => {})
 }
+
+onMounted(() => {
+  fetchData()
+})
 </script>
 
 <style scoped>

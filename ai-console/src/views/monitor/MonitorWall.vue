@@ -201,28 +201,96 @@
         </div>
       </div>
       <el-radio-group v-model="eventFilter" size="small">
-        <el-radio-button label="all">全部</el-radio-button>
-        <el-radio-button label="danger">不合规</el-radio-button>
+        <el-radio-button value="all">全部</el-radio-button>
+        <el-radio-button value="danger">不合规</el-radio-button>
       </el-radio-group>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { Edit } from '@element-plus/icons-vue'
 import VideoPlayer from '@/components/video/VideoPlayer.vue'
-import { deviceTreeData, alarmList } from '@/mock/monitor/data'
+import { getDevices } from '@/api/devices'
+import { getList as getWarningEvents } from '@/api/warning-events'
 import type { DeviceNode } from '@/components/device-tree/useDeviceTree'
 
 const selectedChannel = ref('device-4')
 const eventFilter = ref('all')
 const deploymentInfo = ref('海东分公司(84路)')
 
+const deviceTreeData = ref<DeviceNode[]>([])
+const alarmList = ref<any[]>([])
+
+const fetchDeviceTree = async () => {
+  try {
+    const res: any = await getDevices({ page: 1, page_size: 100 })
+    const devices = res.items || []
+    const grouped: Record<string, Record<string, any[]>> = {}
+    devices.forEach((d: any) => {
+      const org = d.org_name || d.org || '未知组织'
+      const region = d.region_name || d.region || '未知区域'
+      if (!grouped[org]) grouped[org] = {}
+      if (!grouped[org][region]) grouped[org][region] = []
+      grouped[org][region].push({
+        id: `device-${d.id}`,
+        name: d.name,
+        type: 'camera' as const,
+        online: d.status === 'active',
+        ip: ''
+      })
+    })
+
+    deviceTreeData.value = Object.entries(grouped).map(([orgName, regions]) => ({
+      id: `org-${orgName}`,
+      name: orgName,
+      type: 'org' as const,
+      online: true,
+      children: Object.entries(regions).map(([regionName, cameras]) => ({
+        id: `group-${regionName}`,
+        name: regionName,
+        type: 'group' as const,
+        online: true,
+        children: cameras
+      }))
+    }))
+  } catch {
+    console.error('获取设备列表失败')
+  }
+}
+
+const fetchAlarms = async () => {
+  try {
+    const res: any = await getWarningEvents({ page: 1, page_size: 50 })
+    const items = res.items || []
+    alarmList.value = items.map((item: any) => ({
+      id: item.id,
+      time: item.time || item.captureTime?.split(' ')[1] || '00:00:00',
+      type: item.type || '未知',
+      device: item.device || '',
+      location: item.location || '',
+      level: item.level || 'info',
+      handled: item.handled ?? false,
+      isCompliant: item.isCompliant ?? true,
+      imageUrl: item.imageUrl || '',
+      captureTime: item.captureTime || ''
+    }))
+  } catch (error) {
+    console.error('Failed to load alarms:', error)
+    alarmList.value = []
+  }
+}
+
+onMounted(() => {
+  fetchDeviceTree()
+  fetchAlarms()
+})
+
 // 通道列表
 const channels = computed(() => {
   const result: any[] = []
-  deviceTreeData.forEach(org => {
+  deviceTreeData.value.forEach(org => {
     if (org.children) {
       org.children.forEach(group => {
         if (group.children) {
@@ -252,16 +320,16 @@ const currentVideoUrl = computed(() => {
 
 // 统计数据
 const statsData = ref({
-  avgSpeed: '65.7',
-  upTraffic: '1357',
-  downTraffic: '1604',
+  avgSpeed: '--',
+  upTraffic: '--',
+  downTraffic: '--',
   roadLevel: 1,
   roadLevelText: '畅通'
 })
 
 // 事件统计
 const eventStats = computed(() => {
-  const total = alarmList.length * 10
+  const total = alarmList.value.length * 10 || 1
   const legend = [
     { name: '行人闯入', value: 64, color: '#00FFCC' },
     { name: '异常停车', value: 32, color: '#0099FF' },
@@ -299,16 +367,14 @@ const roadLevelPosition = computed(() => {
 })
 
 // 布控数据
-const deploymentData = ref([
-  { name: '海东分公司', algorithm: '交通检测', status: '开启', statusClass: 'online' }
-])
+const deploymentData = ref([])
 
 // 过滤后的事件
 const filteredEvents = computed(() => {
   const events = [
-    ...alarmList,
-    ...alarmList.map(a => ({ ...a, id: a.id + 100, type: '非机动车驶入' })),
-    ...alarmList.map(a => ({ ...a, id: a.id + 200, type: '行人闯入' }))
+    ...alarmList.value,
+    ...alarmList.value.map(a => ({ ...a, id: a.id + 100, type: '非机动车驶入' })),
+    ...alarmList.value.map(a => ({ ...a, id: a.id + 200, type: '行人闯入' }))
   ].slice(0, 8)
   if (eventFilter.value === 'all') {
     return events

@@ -106,12 +106,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, onUnmounted, computed } from 'vue'
+import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import * as echarts from 'echarts/core'
 import { BarChart, PieChart, LineChart, GaugeChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent, DataZoomComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { summary, trendData } from '@/mock/event-stats/data'
+import { getSceneStats, getEventStats } from '@/api/event-stats'
 
 echarts.use([BarChart, PieChart, LineChart, GaugeChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, CanvasRenderer])
 
@@ -125,6 +125,12 @@ const filterForm = reactive({
   algorithmType: 'traffic',
   trendDimension: 'day'
 })
+
+// Reactive state for API data
+const sceneCategories = ref<string[]>([])
+const sceneValues = ref<number[]>([])
+const todayEventData = ref<{ name: string; value: number }[]>([])
+const trendData = ref<{ time: string; value: number }[]>([])
 
 const todayChartRef = ref<HTMLDivElement>()
 const leftChartRef = ref<HTMLDivElement>()
@@ -151,31 +157,46 @@ const chartColors = {
   gridLine: 'rgba(0, 229, 255, 0.1)'
 }
 
-// 算法子场景数据（共享，gauge 环形图总数为其求和）
-const sceneCategories = ['疑似事故', '作业人员', '交通阻塞', '异常停车', '烟雾', '作业车辆识别', '非机动车驶入', '占用应急车道', '逆向行驶', '通过卡车数量', '通过大客车数量', '通过摩托车数量', '通过小汽车数量', '下行车流量', '上行车流量', '行人闯入']
-const sceneValues = [256, 412, 521, 389, 178, 445, 312, 198, 156, 892, 734, 445, 1205, 2156, 1987, 298]
-const sceneTotal = sceneValues.reduce((a, b) => a + b, 0)
+// Computed values from API data
+const sceneTotal = ref(0)
+const todayEventTotal = ref(0)
 
-// 今日事件数据（共享，上报预警事件数 = 不合规检测总和）
-const todayEventData = [
-  { name: '疑似事故', value: 3 },
-  { name: '作业人员', value: 5 },
-  { name: '交通阻塞', value: 8 },
-  { name: '异常停车', value: 12 },
-  { name: '烟雾', value: 4 },
-  { name: '作业车辆识别', value: 9 },
-  { name: '非机动车驶入', value: 6 },
-  { name: '占用应急车道', value: 4 },
-  { name: '逆向行驶', value: 2 },
-  { name: '通过卡车数量', value: 18 },
-  { name: '通过大客车数量', value: 15 },
-  { name: '通过摩托车数量', value: 8 },
-  { name: '通过小汽车数量', value: 22 },
-  { name: '下行车流量', value: 10 },
-  { name: '上行车流量', value: 10 },
-  { name: '行人闯入', value: 4 }
-]
-const todayEventTotal = todayEventData.reduce((sum, d) => sum + d.value, 0)
+// Fetch scene stats from API
+const fetchSceneStats = async () => {
+  try {
+    const data = await getSceneStats()
+    sceneCategories.value = data.categories || []
+    sceneValues.value = data.values || []
+    sceneTotal.value = sceneValues.value.reduce((a: number, b: number) => a + b, 0)
+    todayEventData.value = data.todayEvents || []
+    todayEventTotal.value = todayEventData.value.reduce((sum: number, d: { name: string; value: number }) => sum + d.value, 0)
+  } catch (error) {
+    console.error('Failed to fetch scene stats:', error)
+    // Fallback to empty data to avoid breaking the UI
+    sceneCategories.value = []
+    sceneValues.value = []
+    sceneTotal.value = 0
+    todayEventData.value = []
+    todayEventTotal.value = 0
+  }
+}
+
+// Fetch trend data from API
+const fetchTrendData = async () => {
+  try {
+    const data = await getEventStats({
+      dimension: filterForm.trendDimension,
+      company: filterForm.company,
+      region: filterForm.region,
+      startDate: filterForm.startDate,
+      endDate: filterForm.endDate
+    })
+    trendData.value = data.trend || []
+  } catch (error) {
+    console.error('Failed to fetch trend data:', error)
+    trendData.value = []
+  }
+}
 
 const initTodayChart = () => {
   if (!todayChartRef.value) return
@@ -183,7 +204,7 @@ const initTodayChart = () => {
   const option = {
     backgroundColor: 'transparent',
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-    grid: { left: '3%', right: '8%', top: '10%', bottom: '10%', containLabel: true },
+    grid: { left: '3%', right: '8%', top: '10%', bottom: '10%' },
     xAxis: {
       type: 'value',
       axisLine: { lineStyle: { color: chartColors.border } },
@@ -198,7 +219,7 @@ const initTodayChart = () => {
     },
     series: [{
       type: 'bar',
-      data: [{ value: todayEventTotal, itemStyle: { color: new echarts.graphic.LinearGradient(1, 0, 0, 0, [{ offset: 0, color: '#007BFF' }, { offset: 1, color: '#00E5FF' }]) } }],
+      data: [{ value: todayEventTotal.value, itemStyle: { color: new echarts.graphic.LinearGradient(1, 0, 0, 0, [{ offset: 0, color: '#007BFF' }, { offset: 1, color: '#00E5FF' }]) } }],
       barWidth: 20,
       label: { show: true, position: 'right', color: chartColors.primary, fontSize: 14, fontWeight: 'bold' }
     }]
@@ -209,11 +230,10 @@ const initTodayChart = () => {
 const initLeftChart = () => {
   if (!leftChartRef.value) return
   leftChart = echarts.init(leftChartRef.value)
-  const data = todayEventData
   const option = {
     backgroundColor: 'transparent',
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-    grid: { left: '3%', right: '8%', top: '10%', bottom: '10%', containLabel: true },
+    grid: { left: '3%', right: '8%', top: '10%', bottom: '10%' },
     xAxis: {
       type: 'value',
       axisLine: { lineStyle: { color: chartColors.border } },
@@ -222,13 +242,13 @@ const initLeftChart = () => {
     },
     yAxis: {
       type: 'category',
-      data: data.map(d => d.name),
+      data: todayEventData.value.map((d: { name: string; value: number }) => d.name),
       axisLine: { lineStyle: { color: chartColors.border } },
       axisLabel: { color: chartColors.textSecondary, fontSize: 10 }
     },
     series: [{
       type: 'bar',
-      data: data.map(d => ({ value: d.value, itemStyle: { color: new echarts.graphic.LinearGradient(1, 0, 0, 0, [{ offset: 0, color: '#007BFF' }, { offset: 1, color: '#00E5FF' }]) } })),
+      data: todayEventData.value.map((d: { name: string; value: number }) => ({ value: d.value, itemStyle: { color: new echarts.graphic.LinearGradient(1, 0, 0, 0, [{ offset: 0, color: '#007BFF' }, { offset: 1, color: '#00E5FF' }]) } })),
       barWidth: 12,
       label: { show: true, position: 'right', color: chartColors.primary, fontSize: 11 }
     }]
@@ -267,7 +287,7 @@ const initGaugeChart = () => {
       anchor: { show: false },
       title: { show: false },
       detail: { show: false },
-      data: [{ value: sceneTotal, name: '事件总数' }]
+      data: [{ value: sceneTotal.value, name: '事件总数' }]
     }],
     tooltip: {
       trigger: 'item',
@@ -289,10 +309,10 @@ const initCenterChart = () => {
   const option = {
     backgroundColor: 'transparent',
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-    grid: { left: '3%', right: '3%', top: '15%', bottom: '15%', containLabel: true },
+    grid: { left: '3%', right: '3%', top: '15%', bottom: '15%' },
     xAxis: {
       type: 'category',
-      data: sceneCategories,
+      data: sceneCategories.value,
       axisLine: { lineStyle: { color: chartColors.border } },
       axisLabel: { color: chartColors.textSecondary, fontSize: 10, rotate: 30 }
     },
@@ -304,7 +324,7 @@ const initCenterChart = () => {
     },
     series: [{
       type: 'bar',
-      data: sceneValues,
+      data: sceneValues.value,
       barWidth: '50%',
       itemStyle: {
         color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
@@ -329,11 +349,12 @@ const initCenterChart = () => {
 const initTrendChart = () => {
   if (!trendChartRef.value) return
   trendChart = echarts.init(trendChartRef.value)
-  const times = ['03-18', '03-20', '03-22', '03-24', '03-26', '03-28', '03-30']
+  const times = trendData.value.length > 0 ? trendData.value.map((d: { time: string }) => d.time) : ['03-18', '03-20', '03-22', '03-24', '03-26', '03-28', '03-30']
+  const values = trendData.value.length > 0 ? trendData.value.map((d: { time: string; value: number }) => d.value) : [65, 78, 92, 88, 95, 110, 125]
   const option = {
     backgroundColor: 'transparent',
     tooltip: { trigger: 'axis' },
-    grid: { left: '3%', right: '3%', top: '10%', bottom: '22%', containLabel: true },
+    grid: { left: '3%', right: '3%', top: '10%', bottom: '22%' },
     xAxis: {
       type: 'category',
       data: times,
@@ -370,7 +391,7 @@ const initTrendChart = () => {
     }],
     series: [{
       type: 'line',
-      data: [65, 78, 92, 88, 95, 110, 125],
+      data: values,
       areaStyle: {
         color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
           { offset: 0, color: 'rgba(0, 229, 255, 0.3)' },
@@ -406,7 +427,7 @@ const updateParkingChart = (eventName?: string) => {
   const option = {
     backgroundColor: 'transparent',
     tooltip: { trigger: 'axis' },
-    grid: { left: '3%', right: '3%', top: '10%', bottom: '22%', containLabel: true },
+    grid: { left: '3%', right: '3%', top: '10%', bottom: '22%' },
     xAxis: {
       type: 'category',
       data: times,
@@ -472,7 +493,8 @@ const resizeCharts = () => {
   parkingChart?.resize()
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await Promise.all([fetchSceneStats(), fetchTrendData()])
   initTodayChart()
   initLeftChart()
   initGaugeChart()

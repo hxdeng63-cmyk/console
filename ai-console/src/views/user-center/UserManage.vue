@@ -32,6 +32,7 @@
     <!-- 表格 -->
     <el-table
       ref="tableRef"
+      v-loading="loading"
       :data="filteredTreeData"
       row-key="id"
       :default-expand-all="true"
@@ -190,9 +191,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { Plus, ArrowDown, ArrowRight, OfficeBuilding, FolderOpened } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getUsers, createUser, updateUser, deleteUser, resetUserPassword } from '@/api/users'
+import { getOrgTree } from '@/api/orgs'
 
 interface UserItem {
   id: string
@@ -210,6 +213,31 @@ interface UserItem {
   children?: any[]
 }
 
+interface OrgNode {
+  id: number
+  name: string
+  parent_id: number | null
+  level: number
+  sort: number
+  code?: string
+  remark?: string
+  children?: OrgNode[]
+}
+
+interface ApiUser {
+  id: number
+  username: string
+  real_name?: string
+  avatar?: string
+  phone?: string
+  email?: string
+  gender?: string
+  org_id?: number
+  status: string
+  created_at?: string
+  updated_at?: string
+}
+
 const roleLabel = (role: string) => {
   const map: Record<string, string> = { admin: '管理员', user: '普通用户', guest: '访客' }
   return map[role] || role
@@ -217,6 +245,7 @@ const roleLabel = (role: string) => {
 
 const expandAll = ref(true)
 const tableRef = ref()
+const loading = ref(false)
 
 const toggleExpand = () => {
   expandAll.value = !expandAll.value
@@ -232,122 +261,7 @@ const toggleExpand = () => {
   walk(filteredTreeData.value)
 }
 
-// 模拟 2 个公司
-const treeData = ref<UserItem[]>([
-  {
-    id: 'company-1',
-    name: '青海海东分公司',
-    org: '青海海东分公司',
-    role: '',
-    status: '正常',
-    username: '',
-    employeeId: '',
-    phone: '',
-    isCompany: true,
-    children: [
-      {
-        id: 'dept-1-1',
-        name: '技术部',
-        org: '青海海东分公司/技术部',
-        role: '',
-        status: '正常',
-        username: '',
-        employeeId: '',
-        phone: '',
-        isDept: true,
-        children: [
-          { id: 'user-001', avatar: 'https://i.pravatar.cc/100?img=2', username: 'zhangwei', name: '张伟', employeeId: 'HD001', phone: '13800138002', org: '青海海东分公司/技术部', role: 'admin', status: '正常', isUser: true },
-          { id: 'user-002', avatar: 'https://i.pravatar.cc/100?img=3', username: 'wangli', name: '王丽', employeeId: 'HD002', phone: '13800138003', org: '青海海东分公司/技术部', role: 'user', status: '正常', isUser: true },
-        ]
-      },
-      {
-        id: 'dept-1-2',
-        name: '运维部',
-        org: '青海海东分公司/运维部',
-        role: '',
-        status: '正常',
-        username: '',
-        employeeId: '',
-        phone: '',
-        isDept: true,
-        children: [
-          { id: 'user-003', avatar: 'https://i.pravatar.cc/100?img=4', username: 'zhaoming', name: '赵明', employeeId: 'HD003', phone: '13800138004', org: '青海海东分公司/运维部', role: 'user', status: '正常', isUser: true },
-          { id: 'user-004', avatar: 'https://i.pravatar.cc/100?img=5', username: 'sunlei', name: '孙磊', employeeId: 'HD004', phone: '13800138005', org: '青海海东分公司/运维部', role: 'admin', status: '正常', isUser: true },
-        ]
-      },
-      {
-        id: 'dept-1-3',
-        name: '综合部',
-        org: '青海海东分公司/综合部',
-        role: '',
-        status: '正常',
-        username: '',
-        employeeId: '',
-        phone: '',
-        isDept: true,
-        children: [
-          { id: 'user-005', avatar: 'https://i.pravatar.cc/100?img=1', username: 'admin', name: '系统管理员', employeeId: 'HD005', phone: '13800138001', org: '青海海东分公司/综合部', role: 'admin', status: '正常', isUser: true },
-        ]
-      }
-    ]
-  },
-  {
-    id: 'company-2',
-    name: '青海西宁分公司',
-    org: '青海西宁分公司',
-    role: '',
-    status: '正常',
-    username: '',
-    employeeId: '',
-    phone: '',
-    isCompany: true,
-    children: [
-      {
-        id: 'dept-2-1',
-        name: '研发部',
-        org: '青海西宁分公司/研发部',
-        role: '',
-        status: '正常',
-        username: '',
-        employeeId: '',
-        phone: '',
-        isDept: true,
-        children: [
-          { id: 'user-006', avatar: 'https://i.pravatar.cc/100?img=6', username: 'liuyang', name: '刘洋', employeeId: 'XN001', phone: '13800138006', org: '青海西宁分公司/研发部', role: 'user', status: '正常', isUser: true },
-          { id: 'user-007', avatar: 'https://i.pravatar.cc/100?img=8', username: 'wuqiang', name: '吴强', employeeId: 'XN002', phone: '13800138008', org: '青海西宁分公司/研发部', role: 'admin', status: '正常', isUser: true },
-        ]
-      },
-      {
-        id: 'dept-2-2',
-        name: '测试部',
-        org: '青海西宁分公司/测试部',
-        role: '',
-        status: '正常',
-        username: '',
-        employeeId: '',
-        phone: '',
-        isDept: true,
-        children: [
-          { id: 'user-008', avatar: 'https://i.pravatar.cc/100?img=9', username: 'zhengxia', name: '郑霞', employeeId: 'XN003', phone: '13800138009', org: '青海西宁分公司/测试部', role: 'user', status: '正常', isUser: true },
-        ]
-      },
-      {
-        id: 'dept-2-3',
-        name: '行政部',
-        org: '青海西宁分公司/行政部',
-        role: '',
-        status: '正常',
-        username: '',
-        employeeId: '',
-        phone: '',
-        isDept: true,
-        children: [
-          { id: 'user-009', avatar: 'https://i.pravatar.cc/100?img=10', username: 'wanghong', name: '王红', employeeId: 'XN004', phone: '13800138010', org: '青海西宁分公司/行政部', role: 'user', status: '正常', isUser: true },
-        ]
-      }
-    ]
-  }
-])
+const treeData = ref<UserItem[]>([])
 
 const searchForm = reactive({
   name: '',
@@ -357,7 +271,9 @@ const searchForm = reactive({
   status: ''
 })
 
-const handleSearch = () => {}
+const handleSearch = () => {
+  // search is handled reactively by filteredTreeData computed
+}
 
 // 深度过滤树：如果节点的子孙中有匹配的用户，则保留该节点
 const filterTree = (nodes: UserItem[]): UserItem[] => {
@@ -384,19 +300,6 @@ const filterTree = (nodes: UserItem[]): UserItem[] => {
 }
 
 const filteredTreeData = computed(() => filterTree(treeData.value))
-
-// 收集所有用户节点（用于新增/编辑时查找）
-const allUsers = computed(() => {
-  const users: UserItem[] = []
-  const walk = (nodes: UserItem[]) => {
-    nodes.forEach(node => {
-      if (node.isUser) users.push(node)
-      if (node.children) walk(node.children)
-    })
-  }
-  walk(treeData.value)
-  return users
-})
 
 const dialogVisible = ref(false)
 const detailDialogVisible = ref(false)
@@ -486,71 +389,135 @@ const openModal = (type: 'add' | 'edit' | 'detail' | 'password', row?: UserItem)
   }
 }
 
-// 在树中递归查找并更新用户
-const updateUserInTree = (nodes: UserItem[], id: string, data: Record<string, string>): boolean => {
-  for (const node of nodes) {
-    if (node.isUser && node.id === id) {
-      Object.assign(node, data)
-      return true
-    }
-    if (node.children && updateUserInTree(node.children, id, data)) return true
-  }
-  return false
+// Backend status: active -> 正常, inactive -> 停用
+const backendStatus = (displayStatus: string): string => {
+  return displayStatus === '正常' ? 'active' : 'inactive'
 }
+
+// Frontend status: active -> 正常, inactive -> 停用
+const frontendStatus = (apiStatus: string): string => {
+  return apiStatus === 'active' ? '正常' : '停用'
+}
+
+// Build tree from org tree + flat user list
+const buildUserTree = (orgs: OrgNode[], users: ApiUser[]): UserItem[] => {
+  const userMap = new Map<number, ApiUser[]>()
+  users.forEach(u => {
+    const orgId = u.org_id ?? 0
+    if (!userMap.has(orgId)) userMap.set(orgId, [])
+    userMap.get(orgId)!.push(u)
+  })
+
+  const transformOrg = (org: OrgNode): UserItem => {
+    const orgUsers = userMap.get(org.id) || []
+    const userChildren: UserItem[] = orgUsers.map(u => ({
+      id: String(u.id),
+      avatar: u.avatar,
+      username: u.username,
+      name: u.real_name || u.username,
+      employeeId: '',
+      phone: u.phone || '',
+      org: org.name,
+      role: 'user',
+      status: frontendStatus(u.status),
+      isUser: true
+    }))
+
+    const deptChildren: UserItem[] = (org.children || []).map(transformOrg)
+    const children = [...deptChildren, ...userChildren]
+
+    return {
+      id: `org-${org.id}`,
+      name: org.name,
+      org: org.name,
+      role: '',
+      status: '正常',
+      username: '',
+      employeeId: '',
+      phone: '',
+      isCompany: org.level === 1,
+      isDept: org.level !== 1,
+      children
+    }
+  }
+
+  return orgs.map(transformOrg)
+}
+
+const loadData = async () => {
+  loading.value = true
+  try {
+    const [orgRes, userRes] = await Promise.all([
+      getOrgTree(),
+      getUsers({ page_size: 1000 })
+    ])
+    const orgs: OrgNode[] = Array.isArray(orgRes) ? orgRes : []
+    const users: ApiUser[] = userRes?.items || []
+    treeData.value = buildUserTree(orgs, users)
+  } catch (error) {
+    ElMessage.error('加载数据失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(() => {
+  loadData()
+})
 
 const handleSubmit = async () => {
   const valid = await (formRef.value as any).validate().catch(() => false)
   if (!valid) return
 
-  if (editingId.value) {
-    updateUserInTree(treeData.value, editingId.value, { ...form })
-    ElMessage.success('编辑成功')
-  } else {
-    // 新增用户添加到第一个公司的第一个部门
-    const company = treeData.value[0]
-    if (company?.children?.[0]) {
-      company.children[0].children!.push({
-        id: 'user-' + Date.now(),
-        avatar: '',
-        username: form.username,
-        name: form.name,
-        employeeId: form.employeeId,
-        phone: form.phone,
-        org: form.org || company.children[0].org,
-        role: form.role,
-        status: form.status,
-        isUser: true
-      })
-    }
-    ElMessage.success('新建成功')
+  const payload = {
+    username: form.username,
+    real_name: form.name,
+    phone: form.phone,
+    status: backendStatus(form.status),
+    // Backend doesn't have role/employee_id fields; keep them in UI only
+    org_id: undefined as number | undefined
   }
-  dialogVisible.value = false
+
+  try {
+    if (editingId.value) {
+      await updateUser(Number(editingId.value), payload)
+      ElMessage.success('编辑成功')
+    } else {
+      await createUser({ ...payload, password: '123456' })
+      ElMessage.success('新建成功')
+    }
+    await loadData()
+    dialogVisible.value = false
+  } catch (error) {
+    // Error handled by response interceptor
+  }
 }
 
 const handlePasswordSubmit = async () => {
   const valid = await (passwordFormRef.value as any).validate().catch(() => false)
   if (!valid) return
-  ElMessage.success('密码修改成功')
-  passwordDialogVisible.value = false
-}
 
-// 从树中递归删除用户
-const deleteUserInTree = (nodes: UserItem[], id: string): boolean => {
-  for (let i = 0; i < nodes.length; i++) {
-    if (nodes[i].isUser && nodes[i].id === id) {
-      nodes.splice(i, 1)
-      return true
-    }
-    if (nodes[i].children && deleteUserInTree(nodes[i].children!, id)) return true
+  if (!passwordForm.id) return
+
+  try {
+    await resetUserPassword(Number(passwordForm.id))
+    ElMessage.success('密码重置成功')
+    passwordDialogVisible.value = false
+  } catch (error) {
+    // Error handled by response interceptor
   }
-  return false
 }
 
 const handleDelete = (row: UserItem) => {
   ElMessageBox.confirm('确定删除该用户吗？', '提示', { type: 'warning' })
-    .then(() => {
-      deleteUserInTree(treeData.value, row.id)
-      ElMessage.success('删除成功')
+    .then(async () => {
+      try {
+        await deleteUser(Number(row.id))
+        ElMessage.success('删除成功')
+        await loadData()
+      } catch (error) {
+        // Error handled by response interceptor
+      }
     })
     .catch(() => {})
 }

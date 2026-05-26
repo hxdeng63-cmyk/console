@@ -48,8 +48,8 @@
         </el-table-column>
         <el-table-column label="操作" width="150" fixed="right" align="center">
           <template #default="{ row }">
-            <el-button link style="color: #00E5FF; background: rgba(0, 229, 255, 0.15); border: 1px solid rgba(0, 229, 255, 0.4); border-radius: 4px; padding: 2px 8px; font-weight: 600; text-shadow: none;" size="small" @click="openModal('edit', row)">编辑</el-button>
-            <el-button link style="color: #FF006E; background: rgba(255, 0, 110, 0.15); border: 1px solid rgba(255, 0, 110, 0.4); border-radius: 4px; padding: 2px 8px; font-weight: 600; text-shadow: none;" size="small" @click="handleDelete(row)">删除</el-button>
+            <el-button link class="action-edit" size="small" @click="openModal('edit', row)">编辑</el-button>
+            <el-button link class="action-delete" size="small" @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -182,12 +182,157 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive } from 'vue'
-import { Search, Plus, Delete, Refresh } from '@element-plus/icons-vue'
+import { ref, computed, reactive, onMounted } from 'vue'
+import { Plus, Delete, Refresh } from '@element-plus/icons-vue'
+import type { DeviceNode } from '@/components/device-tree/useDeviceTree'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import DeviceTree from '@/components/device-tree/DeviceTree.vue'
-import { deployments, algorithms, services } from '@/mock/deployment/data'
-import { deviceTreeData } from '@/mock/monitor/data'
+import { deploymentApi } from '@/api/deployment'
+
+interface DeploymentItem {
+  id: number
+  name: string
+  deviceIds: number[]
+  deviceNames: string
+  deviceNamesLink?: boolean
+  algorithmId: number
+  serviceId: number
+  schedule: { [key: number]: Array<{ start: string; end: string }> }
+  status: string
+  algorithmStatus: string
+  createTime: string
+}
+
+interface ServiceOption {
+  id: number
+  name: string
+  address: string
+  labelAddress?: string
+}
+
+// Data state
+const deploymentsData = ref<DeploymentItem[]>([])
+const algorithms = ref<{ id: number; name: string }[]>([])
+const services = ref<ServiceOption[]>([])
+const deviceTreeData = ref<DeviceNode[]>([])
+
+const loading = reactive({
+  deployments: false,
+  algorithms: false,
+  services: false,
+  devices: false
+})
+
+// Fetch functions
+const fetchDeployments = async () => {
+  loading.deployments = true
+  try {
+    const res = await deploymentApi.list({ page: 1, page_size: 100 }) as any
+    deploymentsData.value = (res.items || []).map((item: any) => ({
+      id: item.id,
+      name: item.name,
+      deviceIds: [],
+      deviceNames: '',
+      algorithmId: item.algorithm_id,
+      serviceId: item.service_id,
+      schedule: { 1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 7: [] },
+      status: item.status,
+      algorithmStatus: item.algorithm_status,
+      createTime: item.created_at ? new Date(item.created_at).toLocaleString() : ''
+    }))
+  } catch (e) {
+    console.error('Failed to fetch deployments:', e)
+  } finally {
+    loading.deployments = false
+  }
+}
+
+const fetchAlgorithms = async () => {
+  loading.algorithms = true
+  try {
+    const res = await deploymentApi.listAlgorithms({ page: 1, page_size: 100 }) as any
+    algorithms.value = (res.items || []).map((item: any) => ({
+      id: item.id,
+      name: item.name
+    }))
+  } catch (e) {
+    console.error('Failed to fetch algorithms:', e)
+  } finally {
+    loading.algorithms = false
+  }
+}
+
+const fetchServices = async () => {
+  loading.services = true
+  try {
+    const res = await deploymentApi.listServices({ page: 1, page_size: 100 }) as any
+    services.value = (res.items || []).map((item: any) => ({
+      id: item.id,
+      name: item.service_name || item.service_id || `Service ${item.id}`,
+      address: item.service_ip ? `${item.service_ip}:${item.service_port}` : '',
+      labelAddress: item.annotation_ip ? `${item.annotation_ip}:${item.annotation_port}` : ''
+    }))
+  } catch (e) {
+    console.error('Failed to fetch services:', e)
+  } finally {
+    loading.services = false
+  }
+}
+
+const fetchDevices = async () => {
+  loading.devices = true
+  try {
+    const res = await deploymentApi.listDevices({ page: 1, page_size: 100 }) as any
+    const devices = res.items || []
+    // Build tree structure: org -> group -> device
+    const orgMap = new Map()
+    devices.forEach((device: any) => {
+      const orgId = device.org_id || 'default'
+      const regionId = device.region_id || 'default'
+      if (!orgMap.has(orgId)) {
+        orgMap.set(orgId, {
+          id: `org-${orgId}`,
+          name: device.org_name || `Organization ${orgId}`,
+          type: 'org',
+          online: true,
+          children: []
+        })
+      }
+      const org = orgMap.get(orgId)
+      let group = org.children.find((g: any) => g.id === `group-${regionId}`)
+      if (!group) {
+        group = {
+          id: `group-${regionId}`,
+          name: device.region_name || `Region ${regionId}`,
+          type: 'group',
+          online: true,
+          children: []
+        }
+        org.children.push(group)
+      }
+      group.children.push({
+        id: String(device.id),
+        name: device.name,
+        type: 'camera',
+        online: device.status === 'active',
+        ip: device.ip_address || ''
+      })
+    })
+    deviceTreeData.value = Array.from(orgMap.values())
+  } catch (e) {
+    console.error('Failed to fetch devices:', e)
+    deviceTreeData.value = []
+  } finally {
+    loading.devices = false
+  }
+}
+
+onMounted(() => {
+  fetchDeployments()
+  fetchAlgorithms()
+  fetchServices()
+  fetchDevices()
+})
 
 interface DeploymentItem {
   id: number
@@ -222,8 +367,8 @@ const currentPage = ref(1)
 const pageSize = ref(10)
 
 const filteredData = computed(() => {
-  if (!searchName.value) return deployments
-  return deployments.filter((item: DeploymentItem) =>
+  if (!searchName.value) return deploymentsData.value
+  return deploymentsData.value.filter((item: DeploymentItem) =>
     item.name.toLowerCase().includes(searchName.value.toLowerCase())
   )
 })
@@ -234,16 +379,17 @@ const pagedData = computed(() => {
 })
 
 const getAlgorithmName = (id: number) => {
-  const algo = algorithms.find((a: { id: number }) => a.id === id)
+  const algo = algorithms.value.find((a: { id: number }) => a.id === id)
   return algo?.name || '-'
 }
 
-const handleSearch = () => {
-  currentPage.value = 1
-}
-
-const onStatusChange = (row: DeploymentItem) => {
-  ElMessage.success(`布控任务 "${row.name}" 已${row.status === 'active' ? '启用' : '停用'}`)
+const onStatusChange = async (row: DeploymentItem) => {
+  try {
+    await deploymentApi.update(row.id, { status: row.status })
+    ElMessage.success(`布控任务 "${row.name}" 已${row.status === 'active' ? '启用' : '停用'}`)
+  } catch (e) {
+    console.error('Failed to update status:', e)
+  }
 }
 
 const dialogVisible = ref(false)
@@ -291,7 +437,7 @@ const openModal = (type: 'add' | 'edit', row?: DeploymentItem) => {
   if (type === 'edit' && row) {
     editingId.value = row.id
     dialogTitle.value = '编辑布控'
-    const selectedService = services.filter((s: ServiceOption) => s.id === row.serviceId)
+    const selectedService = services.value.filter((s: ServiceOption) => s.id === row.serviceId)
     Object.assign(form, {
       name: row.name,
       algorithmId: row.algorithmId,
@@ -345,39 +491,45 @@ const handleSubmit = async () => {
   if (!valid) return
 
   if (editingId.value) {
-    const idx = deployments.findIndex((item: DeploymentItem) => item.id === editingId.value)
-    if (idx !== -1) {
-      Object.assign(deployments[idx], {
+    try {
+      await deploymentApi.update(editingId.value, {
         name: form.name,
-        algorithmId: form.algorithmId,
-        serviceId: form.selectedServices[0]?.id || 0,
-        deviceIds: [...form.selectedDevices],
-        schedule: JSON.parse(JSON.stringify(form.schedule))
+        algorithm_id: form.algorithmId,
+        service_id: form.selectedServices[0]?.id
       })
+      ElMessage.success('编辑成功')
+      await fetchDeployments()
+    } catch (e) {
+      console.error('Failed to update deployment:', e)
     }
-    ElMessage.success('编辑成功')
   } else {
-    deployments.push({
-      id: Date.now(),
-      name: form.name,
-      algorithmId: form.algorithmId!,
-      serviceId: form.selectedServices[0]?.id || 0,
-      deviceIds: [...form.selectedDevices],
-      schedule: JSON.parse(JSON.stringify(form.schedule)),
-      status: 'active',
-      createTime: new Date().toLocaleString()
-    })
-    ElMessage.success('创建成功')
+    try {
+      await deploymentApi.create({
+        name: form.name,
+        algorithm_id: form.algorithmId,
+        service_id: form.selectedServices[0]?.id,
+        status: 'active',
+        algorithm_status: 'running'
+      })
+      ElMessage.success('创建成功')
+      await fetchDeployments()
+    } catch (e) {
+      console.error('Failed to create deployment:', e)
+    }
   }
   dialogVisible.value = false
 }
 
 const handleDelete = (row: DeploymentItem) => {
   ElMessageBox.confirm(`确定删除布控任务 "${row.name}" 吗？`, '提示', { type: 'warning' })
-    .then(() => {
-      const idx = deployments.findIndex((item: DeploymentItem) => item.id === row.id)
-      if (idx !== -1) deployments.splice(idx, 1)
-      ElMessage.success('删除成功')
+    .then(async () => {
+      try {
+        await deploymentApi.delete(row.id)
+        ElMessage.success('删除成功')
+        await fetchDeployments()
+      } catch (e) {
+        console.error('Failed to delete deployment:', e)
+      }
     })
     .catch(() => {})
 }
@@ -682,6 +834,38 @@ const handleDelete = (row: DeploymentItem) => {
 
 .submit-btn:hover {
   box-shadow: 0 0 30px rgba(0, 229, 255, 0.5);
+}
+
+.action-edit {
+  color: #00E5FF;
+  background: rgba(0, 229, 255, 0.15);
+  border: 1px solid rgba(0, 229, 255, 0.4);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-weight: 600;
+  text-shadow: none;
+}
+
+.action-edit:hover {
+  color: #00FF88;
+  background: rgba(0, 229, 255, 0.25);
+  border-color: #00E5FF;
+}
+
+.action-delete {
+  color: #FF006E;
+  background: rgba(255, 0, 110, 0.15);
+  border: 1px solid rgba(255, 0, 110, 0.4);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-weight: 600;
+  text-shadow: none;
+}
+
+.action-delete:hover {
+  color: #FF4D6D;
+  background: rgba(255, 0, 110, 0.25);
+  border-color: #FF006E;
 }
 
 :deep(.el-dialog) {

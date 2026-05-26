@@ -1,0 +1,165 @@
+告
+select.vue:407 
+Unhandled error during execution of component update   
+Proxy(Object) {…} 
+at <DeviceGroup>
+at <RouterView>
+at <Console>
+at <RouterView>
+at <App>   
+(5) [{…}, {…}, {…}, {…}, {…}]
+错误
+DeviceGroup.vue:140 
+Uncaught (in promise) 
+TypeError: devices.forEach is not a function
+    at buildTree (DeviceGroup.vue:140:11
+)
+    at ComputedRefImpl.fn (DeviceGroup.vue:177:10
+)
+￼
+显示忽略列表的框架
+6
+error.ts:22 
+ElementPlusError: [el-radio] [API] label act as value is about to be deprecated in version 3.0.0, please use value instead.
+For more detail, please visit: https://element-plus.org/en-US/component/radio.html
+
+    at debugWarn (error.ts:19:9
+)
+    at watch.immediate (index.ts:23:9
+)
+    at useDeprecated (index.ts:19:3)
+￼
+显示忽略列表的框架
+4
+error.ts:22 
+ElementPlusError: [el-checkbox] [API] label act as value is about to be deprecated in version 3.0.0, please use value instead.
+For more detail, please visit: https://element-plus.org/en-US/component/checkbox.html
+
+    at debugWarn (error.ts:19:9
+)
+    at watch.immediate (index.ts:23:9
+)
+    at useDeprecated (index.ts:19:3)
+￼
+显示忽略列表的框架
+错误
+linkage-rules.js:9 
+￼ 
+POST http://localhost:5174/api/v1/linkage-rules/1/disable 404 (Not Found)
+错误
+linkage-rules.js:9 
+￼ 
+POST http://localhost:5174/api/v1/linkage-rules/2/disable 404 (Not Found)
+错误
+linkage-rules.js:9 
+￼ 
+POST http://localhost:5174/api/v1/linkage-rules/3/disable 404 (Not Found)
+错误
+linkage-rules.js:9 
+￼ 
+POST http://localhost:5174/api/v1/linkage-rules/4/disable 404 (Not Found)
+错误
+linkage-rules.js:9 
+￼ 
+POST http://localhost:5174/api/v1/linkage-rules/5/disable 404 (Not Found)
+错误
+linkage-rules.js:9 
+￼ 
+POST http://localhost:5174/api/v1/linkage-rules/6/disable 404 (Not Found)
+错误
+linkage-rules.js:9 
+￼ 
+POST http://localhost:5174/api/v1/linkage-rules/7/disable 404 (Not Found)
+错误
+linkage-rules.js:9 
+￼ 
+POST http://localhost:5174/api/v1/linkage-rules/8/disable 404 (Not Found)
+错误
+linkage-rules.js:9 
+￼ 
+POST http://localhost:5174/api/v1/linkage-rules/9/disable 404 (Not Found)
+错误
+linkage-rules.js:9 
+￼ 
+POST http://localhost:5174/api/v1/linkage-rules/10/disable 404 (Not Found)
+错误
+linkage-histories.js:3 
+￼ 
+GET http://localhost:5174/api/v1/linkage-histories 404 (Not Found)
+错误
+PushHistory.vue:123 
+Failed to load linkage histories: 
+AxiosError: Request failed with status code 404
+￼
+显示忽略列表的框架
+错误
+files.js:19 
+￼ 
+GET http://localhost:5174/api/v1/files/tree 404 (Not Found)
+错误
+FileManager.vue:182 
+Failed to load file tree: 
+AxiosError: Request failed with status code 404
+￼
+显示忽略列表的框架
+警告
+Sidebar.vue:192 
+[Vue warn]: Duplicate keys found during update: "/console/firmware" Make sure keys are unique. 
+  at <ElBreadcrumb separator="/" > 
+  at <Breadcrumb> 
+  at <Console onVnodeUnmounted=fn<onVnodeUnmounted> ref=Ref<   
+Proxy(Object) {__v_skip: true} 
+> > 
+  at <RouterView> 
+  at <App>
+警告
+Sidebar.vue:192 
+[Vue warn]: Unhandled error during execution of render function 
+  at <Firmware onVnodeUnmounted=fn<onVnodeUnmounted> ref=Ref< null > > 
+  at <RouterView> 
+  at <Console onVnodeUnmounted=fn<onVnodeUnmounted> ref=Ref<   
+Proxy(Object) {__v_skip: true} 
+> > 
+  at <RouterView> 
+  at <App>
+警告
+Sidebar.vue:192 
+[Vue warn]: Unhandled error during execution of component update 
+  at <RouterView> 
+  at <Console onVnodeUnmounted=fn<onVnodeUnmounted> ref=Ref<   
+Proxy(Object) {__v_skip: true} 
+> > 
+  at <RouterView> 
+  at <App>
+错误
+Firmware.vue:15 
+Uncaught (in promise) 
+TypeError: Cannot read properties of undefined (reading 'version')
+    at Proxy._sfc_render (Firmware.vue:15:52
+)
+￼
+显示忽略列表的框架
+警告
+Sidebar.vue:192 
+[Vue warn]: Duplicate keys found during update: "/console/events" Make sure keys are unique. 
+  at <ElBreadcrumb separator="/" > 
+  at <Breadcrumb> 
+  at <Console onVnodeUnmounted=fn<onVnodeUnmounted> ref=Ref<   
+Proxy(Object) {__v_skip: true} 
+> > 
+  at <RouterView> 
+  at <App>
+警告
+Sidebar.vue:192 
+[Vue warn]: Unhandled error during execution of component update 
+  at <RouterView> 
+  at <Console onVnodeUnmounted=fn<onVnodeUnmounted> ref=Ref<   
+Proxy(Object) {__v_skip: true} 
+> > 
+  at <RouterView> 
+  at <App>
+错误
+runtime-core.esm-bundler.js:6928 
+Uncaught (in promise) 
+TypeError: Cannot read properties of null (reading 'component')
+￼

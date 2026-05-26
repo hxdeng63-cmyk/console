@@ -33,13 +33,13 @@
                   <span v-if="data.deviceCount !== undefined" class="device-count">({{ data.deviceCount }}台)</span>
                 </span>
                 <span class="node-actions">
-                  <el-button v-if="data.isCompany" type="text" class="tree-btn" @click.stop="handleAddRegion(data)">
+                  <el-button v-if="data.isCompany" link class="tree-btn" @click.stop="handleAddRegion(data)">
                     <el-icon><Plus /></el-icon>
                   </el-button>
-                  <el-button type="text" class="tree-btn" @click.stop="handleEdit(data)">
+                  <el-button link class="tree-btn" @click.stop="handleEdit(data)">
                     <el-icon><Edit /></el-icon>
                   </el-button>
-                  <el-button type="text" class="tree-btn" @click.stop="handleDelete(data)">
+                  <el-button link class="tree-btn" @click.stop="handleDelete(data)">
                     <el-icon><Delete /></el-icon>
                   </el-button>
                 </span>
@@ -94,8 +94,8 @@
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
         <el-form-item label="类型" prop="type">
           <el-radio-group v-model="form.type" :disabled="isEditing">
-            <el-radio label="company">公司</el-radio>
-            <el-radio label="region">区域</el-radio>
+            <el-radio value="company">公司</el-radio>
+            <el-radio value="region">区域</el-radio>
           </el-radio-group>
         </el-form-item>
         <el-form-item v-if="form.type === 'region'" label="所属公司" prop="parentId">

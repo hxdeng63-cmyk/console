@@ -46,7 +46,7 @@
         </el-form-item>
         <el-form-item label="密码">
           <span class="password-mask">********</span>
-          <el-button link style="color: #00E5FF; background: rgba(0, 229, 255, 0.15); border: 1px solid rgba(0, 229, 255, 0.4); border-radius: 4px; padding: 2px 8px; font-weight: 600; text-shadow: none;" class="change-pwd-btn" @click="passwordVisible = true">修改密码</el-button>
+          <el-button link class="action-edit change-pwd-btn" @click="passwordVisible = true">修改密码</el-button>
         </el-form-item>
       </el-form>
     </div>
@@ -224,8 +224,23 @@ const handlePwdSubmit = async () => {
 }
 
 .change-pwd-btn {
-  color: #00E5FF;
   padding: 0;
+}
+
+.action-edit {
+  color: #00E5FF;
+  background: rgba(0, 229, 255, 0.15);
+  border: 1px solid rgba(0, 229, 255, 0.4);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-weight: 600;
+  text-shadow: none;
+}
+
+.action-edit:hover {
+  color: #00FF88;
+  background: rgba(0, 229, 255, 0.25);
+  border-color: #00E5FF;
 }
 
 .form-footer {

@@ -60,7 +60,14 @@ const breadcrumbs = computed(() => {
   // Last: current page
   const lastRecord = route.matched[route.matched.length - 1]
   const currentLabel = (lastRecord?.meta?.title as string) || pathParts[pathParts.length - 1]
-  items.push({ path: route.path, label: currentLabel, isLast: true })
+  const currentPath = route.path
+  // Avoid duplicate breadcrumb when parent path equals current path (e.g. /console/firmware)
+  const parentPath = items.length > 0 ? items[items.length - 1].path : ''
+  if (currentPath !== parentPath) {
+    items.push({ path: currentPath, label: currentLabel, isLast: true })
+  } else if (items.length > 0) {
+    items[items.length - 1].isLast = true
+  }
 
   return items
 })

@@ -74,8 +74,8 @@
         </el-form-item>
         <el-form-item label="健康状态" prop="status">
           <el-radio-group v-model="form.status">
-            <el-radio label="在线">在线</el-radio>
-            <el-radio label="离线">离线</el-radio>
+            <el-radio value="在线">在线</el-radio>
+            <el-radio value="离线">离线</el-radio>
           </el-radio-group>
         </el-form-item>
         <el-form-item label="备注">

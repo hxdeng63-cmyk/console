@@ -1,0 +1,42 @@
+# ============================================================
+# AI Console 数据库 Docker 环境
+# 使用方式：
+#   1. 启动 Docker Desktop (WSL2 backend)
+#   2. cd ai-console
+#   3. docker compose -f docker-compose.db.yml up -d
+#   4. 查看日志：docker logs -f ai-console-db
+#   5. 重新执行迁移（修改 schema 后）：
+#      docker exec ai-console-db psql -U postgres -d ai_console -f /docker-entrypoint-initdb.d/V1__init_schema.sql
+# ============================================================
+
+services:
+  postgres:
+    image: postgres:14-alpine
+    container_name: ai-console-db
+    environment:
+      POSTGRES_DB: ai_console
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      PGDATA: /var/lib/postgresql/data
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./db/migration:/docker-entrypoint-initdb.d:ro
+      - ./db/docker-entrypoint.sh:/custom-entrypoint.sh:ro
+    entrypoint: ["/bin/bash", "/custom-entrypoint.sh"]
+    ports:
+      - "5432:5432"
+    networks:
+      - ai-console-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ai_console"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pg_data:
+    driver: local
+
+networks:
+  ai-console-net:
+    driver: bridge

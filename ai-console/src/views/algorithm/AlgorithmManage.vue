@@ -108,6 +108,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Box, Bell, Collection, Edit, Delete } from '@element-plus/icons-vue'
+import { getAlgorithms, deleteAlgorithm, createAlgorithm, updateAlgorithm } from '@/api/algorithms'
 
 interface AlgorithmEvent {
   name: string
@@ -121,37 +122,19 @@ interface Algorithm {
   events?: AlgorithmEvent[]
 }
 
-const trafficEvents: AlgorithmEvent[] = [
-  { name: '疑似事故', description: '检测道路事故场景' },
-  { name: '作业人员', description: '识别道路施工人员' },
-  { name: '交通阻塞', description: '检测道路拥堵状态' },
-  { name: '异常停车', description: '检测违规停车行为' },
-  { name: '烟雾', description: '检测烟雾/火灾场景' },
-  { name: '作业车辆识别', description: '识别工程作业车辆' },
-  { name: '非机动车驶入', description: '检测非机动车进入机动车道' },
-  { name: '占用应急车道', description: '检测违规占用应急车道' },
-  { name: '逆向行驶', description: '检测车辆逆行行为' },
-  { name: '通过卡车数量', description: '统计卡车通行数量' },
-  { name: '通过大客车数量', description: '统计大客车通行数量' },
-  { name: '通过摩托车数量', description: '统计摩托车通行数量' },
-  { name: '通过小汽车数量', description: '统计小汽车通行数量' },
-  { name: '下行车流量', description: '统计下行方向车流量' },
-  { name: '上行车流量', description: '统计上行方向车流量' },
-  { name: '行人闯入', description: '检测行人进入机动车道' }
-]
-
-const defaultAlgorithms: Algorithm[] = [
-  { id: 1, name: '交通算法', description: '道路交通智能检测算法，涵盖事故、拥堵、违章等16类交通事件', events: trafficEvents }
-]
-
 const loading = ref(false)
 const tableData = ref<Algorithm[]>([])
 
 onMounted(async () => {
   loading.value = true
-  await new Promise(r => setTimeout(r, 200))
-  tableData.value = JSON.parse(JSON.stringify(defaultAlgorithms))
-  loading.value = false
+  try {
+    const res = await getAlgorithms()
+    tableData.value = res.data || []
+  } catch (e) {
+    ElMessage.error('获取算法列表失败')
+  } finally {
+    loading.value = false
+  }
 })
 
 const searchName = ref('')
@@ -241,24 +224,31 @@ const handleSubmit = async () => {
       ElMessage.success('添加成功')
     }
   } else {
-    if (editingId.value) {
-      const idx = tableData.value.findIndex(item => item.id === editingId.value)
-      if (idx !== -1) {
-        tableData.value[idx].name = form.name
-        tableData.value[idx].description = form.description
+    try {
+      if (editingId.value) {
+        await updateAlgorithm(editingId.value, {
+          name: form.name,
+          description: form.description
+        })
+        const idx = tableData.value.findIndex(item => item.id === editingId.value)
+        if (idx !== -1) {
+          tableData.value[idx].name = form.name
+          tableData.value[idx].description = form.description
+        }
+        ElMessage.success('编辑成功')
+      } else {
+        const res = await createAlgorithm({
+          name: form.name,
+          description: form.description
+        })
+        tableData.value.push(res.data)
+        ElMessage.success('新建成功')
       }
-      ElMessage.success('编辑成功')
-    } else {
-      const newId = Math.max(0, ...tableData.value.map(i => i.id)) + 1
-      tableData.value.push({
-        id: newId,
-        name: form.name,
-        description: form.description
-      })
-      ElMessage.success('新建成功')
+      dialogVisible.value = false
+    } catch (e) {
+      ElMessage.error('操作失败')
     }
   }
-  dialogVisible.value = false
 }
 
 const handleDeleteEvent = (algorithm: Algorithm, eventIndex: number) => {
@@ -270,14 +260,16 @@ const handleDeleteEvent = (algorithm: Algorithm, eventIndex: number) => {
     .catch(() => {})
 }
 
-const handleDelete = (row: Algorithm) => {
-  ElMessageBox.confirm(`确定删除算法 "${row.name}" 吗？`, '提示', { type: 'warning' })
-    .then(() => {
-      const idx = tableData.value.findIndex(item => item.id === row.id)
-      if (idx !== -1) tableData.value.splice(idx, 1)
-      ElMessage.success('删除成功')
-    })
-    .catch(() => {})
+const handleDelete = async (row: Algorithm) => {
+  try {
+    await ElMessageBox.confirm(`确定删除算法 "${row.name}" 吗？`, '提示', { type: 'warning' })
+    await deleteAlgorithm(row.id)
+    const idx = tableData.value.findIndex(item => item.id === row.id)
+    if (idx !== -1) tableData.value.splice(idx, 1)
+    ElMessage.success('删除成功')
+  } catch (e) {
+    // user cancelled or API error
+  }
 }
 </script>
 

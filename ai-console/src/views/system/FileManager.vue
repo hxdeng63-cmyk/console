@@ -5,6 +5,24 @@
       <div class="search-area">
         <el-input v-model="searchForm.companyName" placeholder="公司名称" style="width: 160px" clearable />
         <el-input v-model="searchForm.regionName" placeholder="区域" style="width: 140px" clearable />
+        <el-select v-model="searchForm.eventType" placeholder="事件类型" style="width: 160px" clearable>
+          <el-option label="疑似事故" value="疑似事故" />
+          <el-option label="作业人员" value="作业人员" />
+          <el-option label="交通阻塞" value="交通阻塞" />
+          <el-option label="异常停车" value="异常停车" />
+          <el-option label="烟雾" value="烟雾" />
+          <el-option label="作业车辆识别" value="作业车辆识别" />
+          <el-option label="非机动车驶入" value="非机动车驶入" />
+          <el-option label="占用应急车道" value="占用应急车道" />
+          <el-option label="逆向行驶" value="逆向行驶" />
+          <el-option label="通过卡车数量" value="通过卡车数量" />
+          <el-option label="通过大客车数量" value="通过大客车数量" />
+          <el-option label="通过摩托车数量" value="通过摩托车数量" />
+          <el-option label="通过小汽车数量" value="通过小汽车数量" />
+          <el-option label="下行车流量" value="下行车流量" />
+          <el-option label="上行车流量" value="上行车流量" />
+          <el-option label="行人闯入" value="行人闯入" />
+        </el-select>
         <el-select v-model="searchForm.fileType" placeholder="文件类型" style="width: 120px" clearable>
           <el-option label="视频" value="视频" />
           <el-option label="图片" value="图片" />
@@ -35,7 +53,7 @@
       v-loading="loading"
     >
       <!-- 层级列：公司 / 区域 / 文件 -->
-      <el-table-column label="文件层级" min-width="280">
+      <el-table-column label="文件层级" min-width="220">
         <template #default="{ row }">
           <div class="tree-node-content">
             <el-icon v-if="row.isCompany" :size="16" class="node-icon company-icon"><OfficeBuilding /></el-icon>
@@ -44,6 +62,16 @@
             <el-icon v-else :size="16" class="node-icon image-icon"><Picture /></el-icon>
             <span class="node-name" :class="{ 'company-name': row.isCompany, 'region-name': row.isRegion }">{{ row.name }}</span>
           </div>
+        </template>
+      </el-table-column>
+
+      <!-- 事件类型列 -->
+      <el-table-column label="事件类型" width="130" align="center">
+        <template #default="{ row }">
+          <el-tag v-if="row.isFile && row.eventType" size="small" effect="plain" class="event-type-tag">
+            {{ row.eventType }}
+          </el-tag>
+          <span v-else class="node-placeholder">—</span>
         </template>
       </el-table-column>
 
@@ -126,6 +154,7 @@ import {
   OfficeBuilding, MapLocation, VideoCamera, Picture,
   ZoomIn, VideoPlay
 } from '@element-plus/icons-vue'
+import { getFileTree } from '@/api/files.js'
 
 interface FileNode {
   id: number
@@ -134,151 +163,11 @@ interface FileNode {
   isRegion?: boolean
   isFile?: boolean
   fileType?: '视频' | '图片'
+  eventType?: string
   previewUrl?: string
   filePath?: string
   children?: FileNode[]
 }
-
-// 静态树形数据
-const rawTreeData: FileNode[] = [
-  {
-    id: 1,
-    name: '青海海东分公司',
-    isCompany: true,
-    children: [
-      {
-        id: 11,
-        name: '城东区',
-        isRegion: true,
-        children: [
-          {
-            id: 111,
-            name: '事故录像_20240518.mp4',
-            isFile: true,
-            fileType: '视频',
-            previewUrl: 'https://picsum.photos/seed/video111/320/180',
-            filePath: '/video/hd/事故录像_20240518.mp4'
-          },
-          {
-            id: 112,
-            name: '拥堵录像_20240519.mp4',
-            isFile: true,
-            fileType: '视频',
-            previewUrl: 'https://picsum.photos/seed/video112/320/180',
-            filePath: '/video/hd/拥堵录像_20240519.mp4'
-          },
-          {
-            id: 113,
-            name: '抓拍_001.jpg',
-            isFile: true,
-            fileType: '图片',
-            previewUrl: 'https://picsum.photos/seed/img113/320/180',
-            filePath: '/img/hd/抓拍_001.jpg'
-          }
-        ]
-      },
-      {
-        id: 12,
-        name: '平安区',
-        isRegion: true,
-        children: [
-          {
-            id: 121,
-            name: '逆行检测_001.mp4',
-            isFile: true,
-            fileType: '视频',
-            previewUrl: 'https://picsum.photos/seed/video121/320/180',
-            filePath: '/video/hd/逆行检测_001.mp4'
-          },
-          {
-            id: 122,
-            name: '违停抓拍_003.jpg',
-            isFile: true,
-            fileType: '图片',
-            previewUrl: 'https://picsum.photos/seed/img122/320/180',
-            filePath: '/img/hd/违停抓拍_003.jpg'
-          }
-        ]
-      },
-      {
-        id: 13,
-        name: '乐都区',
-        isRegion: true,
-        children: [
-          {
-            id: 131,
-            name: '行人闯入_002.mp4',
-            isFile: true,
-            fileType: '视频',
-            previewUrl: 'https://picsum.photos/seed/video131/320/180',
-            filePath: '/video/hd/行人闯入_002.mp4'
-          }
-        ]
-      }
-    ]
-  },
-  {
-    id: 2,
-    name: '青海西宁分公司',
-    isCompany: true,
-    children: [
-      {
-        id: 21,
-        name: '城西区',
-        isRegion: true,
-        children: [
-          {
-            id: 211,
-            name: '烟雾检测_001.mp4',
-            isFile: true,
-            fileType: '视频',
-            previewUrl: 'https://picsum.photos/seed/video211/320/180',
-            filePath: '/video/xn/烟雾检测_001.mp4'
-          },
-          {
-            id: 212,
-            name: '异常停车_005.jpg',
-            isFile: true,
-            fileType: '图片',
-            previewUrl: 'https://picsum.photos/seed/img212/320/180',
-            filePath: '/img/xn/异常停车_005.jpg'
-          }
-        ]
-      },
-      {
-        id: 22,
-        name: '城中区',
-        isRegion: true,
-        children: [
-          {
-            id: 221,
-            name: '上行车流量_001.mp4',
-            isFile: true,
-            fileType: '视频',
-            previewUrl: 'https://picsum.photos/seed/video221/320/180',
-            filePath: '/video/xn/上行车流量_001.mp4'
-          },
-          {
-            id: 222,
-            name: '作业人员_002.jpg',
-            isFile: true,
-            fileType: '图片',
-            previewUrl: 'https://picsum.photos/seed/img222/320/180',
-            filePath: '/img/xn/作业人员_002.jpg'
-          },
-          {
-            id: 223,
-            name: '交通阻塞_003.mp4',
-            isFile: true,
-            fileType: '视频',
-            previewUrl: 'https://picsum.photos/seed/video223/320/180',
-            filePath: '/video/xn/交通阻塞_003.mp4'
-          }
-        ]
-      }
-    ]
-  }
-]
 
 const treeData = ref<FileNode[]>([])
 const loading = ref(false)
@@ -286,26 +175,33 @@ const tableRef = ref()
 
 onMounted(async () => {
   loading.value = true
-  await new Promise(r => setTimeout(r, 200))
-  treeData.value = JSON.parse(JSON.stringify(rawTreeData))
-  loading.value = false
+  try {
+    const data = await getFileTree()
+    treeData.value = data || []
+  } catch (error) {
+    console.error('Failed to load file tree:', error)
+    ElMessage.error('加载文件树失败')
+  } finally {
+    loading.value = false
+  }
 })
 
 // 搜索
 const searchForm = ref({
   companyName: '',
   regionName: '',
+  eventType: '',
   fileType: ''
 })
 
 const handleSearch = () => {
   // el-table 树形不支持内置过滤，通过重新赋值触发
-  const filtered = filterTree(rawTreeData, searchForm.value)
+  const filtered = filterTree(treeData.value, searchForm.value)
   treeData.value = JSON.parse(JSON.stringify(filtered))
 }
 
 // 树形过滤
-function filterTree(nodes: FileNode[], criteria: { companyName: string; regionName: string; fileType: string }): FileNode[] {
+function filterTree(nodes: FileNode[], criteria: { companyName: string; regionName: string; eventType: string; fileType: string }): FileNode[] {
   const result: FileNode[] = []
   for (const node of nodes) {
     if (node.isCompany && criteria.companyName && !node.name.includes(criteria.companyName)) {
@@ -320,6 +216,10 @@ function filterTree(nodes: FileNode[], criteria: { companyName: string; regionNa
     if (node.isRegion && criteria.regionName && !node.name.includes(criteria.regionName)) {
       // 如果区域不匹配但有子文件匹配公司/类型，保留
       if (!cloned.children || cloned.children.length === 0) continue
+    }
+    // 事件类型过滤
+    if (node.isFile && criteria.eventType && node.eventType !== criteria.eventType) {
+      continue
     }
     // 文件类型过滤
     if (node.isFile && criteria.fileType && node.fileType !== criteria.fileType) {
@@ -544,6 +444,13 @@ function deleteNode(nodes: FileNode[], targetId: number): boolean {
 .preview-wrapper.video .preview-overlay {
   opacity: 1;
   background: rgba(0, 0, 0, 0.2);
+}
+
+/* 事件类型标签 */
+.event-type-tag {
+  background: rgba(0, 229, 255, 0.1) !important;
+  border-color: rgba(0, 229, 255, 0.3) !important;
+  color: #00E5FF !important;
 }
 
 /* 视频播放器 */

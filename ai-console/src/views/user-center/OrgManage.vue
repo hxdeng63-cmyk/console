@@ -29,13 +29,13 @@
               <span class="custom-tree-node" :class="{ selected: selectedNode?.id === data.id }">
                 <span class="node-label">{{ node.label }}</span>
                 <span class="node-actions">
-                  <el-button type="text" class="tree-btn" @click.stop="handleAddChild(data)">
+                  <el-button link class="tree-btn" @click.stop="handleAddChild(data)">
                     <el-icon><Plus /></el-icon>
                   </el-button>
-                  <el-button type="text" class="tree-btn" @click.stop="handleEdit(data)">
+                  <el-button link class="tree-btn" @click.stop="handleEdit(data)">
                     <el-icon><Edit /></el-icon>
                   </el-button>
-                  <el-button type="text" class="tree-btn" @click.stop="handleDelete(data)">
+                  <el-button link class="tree-btn" @click.stop="handleDelete(data)">
                     <el-icon><Delete /></el-icon>
                   </el-button>
                 </span>
@@ -111,6 +111,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { ElTree } from 'element-plus'
 import { RefreshRight, Plus, Edit, Delete } from '@element-plus/icons-vue'
+import { getOrgTree, createOrg, updateOrg, deleteOrg } from '@/api/orgs.js'
 
 interface OrgNode {
   id: number
@@ -124,44 +125,23 @@ interface OrgNode {
 const treeRef = ref<InstanceType<typeof ElTree>>()
 const loading = ref(false)
 
-// 与 UserManage 对齐的组织数据：公司 -> 部门
-const orgTreeData: OrgNode[] = [
-  {
-    id: 1,
-    label: '青海海东分公司',
-    remark: '海东地区分公司',
-    sortOrder: 1,
-    enabled: true,
-    children: [
-      { id: 11, label: '技术部', remark: '技术研发与支持', sortOrder: 1, enabled: true },
-      { id: 12, label: '运维部', remark: '系统运维保障', sortOrder: 2, enabled: true },
-      { id: 13, label: '综合部', remark: '行政综合管理', sortOrder: 3, enabled: true }
-    ]
-  },
-  {
-    id: 2,
-    label: '青海西宁分公司',
-    remark: '西宁地区分公司',
-    sortOrder: 2,
-    enabled: true,
-    children: [
-      { id: 21, label: '研发部', remark: '产品研发部门', sortOrder: 1, enabled: true },
-      { id: 22, label: '测试部', remark: '质量测试部门', sortOrder: 2, enabled: true },
-      { id: 23, label: '行政部', remark: '行政人事管理', sortOrder: 3, enabled: true }
-    ]
-  }
-]
-
 const treeData = ref<OrgNode[]>([])
 
-onMounted(async () => {
+const fetchTree = async () => {
   loading.value = true
-  await new Promise(r => setTimeout(r, 200))
-  treeData.value = JSON.parse(JSON.stringify(orgTreeData))
-  loading.value = false
-})
+  try {
+    const res = await getOrgTree()
+    treeData.value = Array.isArray(res) ? res : (res.data || [])
+  } catch (err) {
+    ElMessage.error('获取组织树失败')
+  } finally {
+    loading.value = false
+  }
+}
 
-let nextId = 100
+onMounted(() => {
+  fetchTree()
+})
 
 const selectedNode = ref<OrgNode | null>(null)
 const detailForm = reactive({
@@ -177,6 +157,7 @@ const dialogTitle = ref('新增根节点')
 const formRef = ref()
 const editingNode = ref<OrgNode | null>(null)
 const isChildNode = ref(false)
+const isEditMode = ref(false)
 
 const form = reactive({
   label: '',
@@ -208,16 +189,14 @@ const getParentName = (nodeId: number): string | null => {
 }
 
 const onRefresh = async () => {
-  loading.value = true
-  await new Promise(r => setTimeout(r, 200))
-  treeData.value = JSON.parse(JSON.stringify(orgTreeData))
-  loading.value = false
+  await fetchTree()
   ElMessage.success('刷新成功')
 }
 
 const onAddRoot = () => {
   editingNode.value = null
   isChildNode.value = false
+  isEditMode.value = false
   dialogTitle.value = '新增根节点'
   form.label = ''
   form.remark = ''
@@ -229,6 +208,7 @@ const onAddRoot = () => {
 const handleAddChild = (data: OrgNode) => {
   editingNode.value = data
   isChildNode.value = true
+  isEditMode.value = false
   dialogTitle.value = '新增子节点'
   form.label = ''
   form.remark = ''
@@ -240,6 +220,7 @@ const handleAddChild = (data: OrgNode) => {
 const handleEdit = (data: OrgNode) => {
   editingNode.value = data
   isChildNode.value = false
+  isEditMode.value = true
   dialogTitle.value = '编辑节点'
   form.label = data.label
   form.remark = data.remark || ''
@@ -248,77 +229,65 @@ const handleEdit = (data: OrgNode) => {
   dialogVisible.value = true
 }
 
-const handleDelete = (data: OrgNode) => {
-  ElMessageBox.confirm(`确定删除部门 "${data.label}" 吗？`, '提示', { type: 'warning' })
-    .then(() => {
-      const removeNode = (nodes: OrgNode[], id: number): boolean => {
-        const index = nodes.findIndex(n => n.id === id)
-        if (index !== -1) {
-          nodes.splice(index, 1)
-          return true
-        }
-        for (const node of nodes) {
-          if (node.children && removeNode(node.children, id)) {
-            return true
-          }
-        }
-        return false
-      }
-      removeNode(treeData.value, data.id)
-      if (selectedNode.value?.id === data.id) {
-        selectedNode.value = null
-      }
-      ElMessage.success('删除成功')
-    })
-    .catch(() => {})
+const handleDelete = async (data: OrgNode) => {
+  try {
+    await ElMessageBox.confirm(`确定删除部门 "${data.label}" 吗？`, '提示', { type: 'warning' })
+    await deleteOrg(data.id)
+    await fetchTree()
+    if (selectedNode.value?.id === data.id) {
+      selectedNode.value = null
+    }
+    ElMessage.success('删除成功')
+  } catch {
+    // user cancelled
+  }
 }
 
 const handleConfirm = async () => {
   const valid = await (formRef.value as any)?.validate().catch(() => false)
   if (!valid) return
 
-  if (isChildNode.value && editingNode.value) {
-    // 添加子节点
-    const addChild = (nodes: OrgNode[]): boolean => {
-      for (const node of nodes) {
-        if (node.id === editingNode.value!.id) {
-          if (!node.children) node.children = []
-          node.children.push({
-            id: nextId++,
-            label: form.label,
-            remark: form.remark,
-            sortOrder: form.sortOrder,
-            enabled: form.enabled
-          })
-          return true
-        }
-        if (node.children && addChild(node.children)) return true
-      }
-      return false
+  try {
+    if (isEditMode.value && editingNode.value) {
+      // 编辑节点
+      await updateOrg(editingNode.value.id, {
+        label: form.label,
+        remark: form.remark,
+        sortOrder: form.sortOrder,
+        enabled: form.enabled
+      })
+      ElMessage.success('保存成功')
+    } else {
+      // 新增节点（根或子）
+      await createOrg({
+        label: form.label,
+        remark: form.remark,
+        sortOrder: form.sortOrder,
+        enabled: form.enabled,
+        parentId: isChildNode.value && editingNode.value ? editingNode.value.id : null
+      })
+      ElMessage.success('添加成功')
     }
-    addChild(treeData.value)
-    ElMessage.success('添加成功')
-  } else {
-    // 添加根节点
-    treeData.value.push({
-      id: nextId++,
-      label: form.label,
-      remark: form.remark,
-      sortOrder: form.sortOrder,
-      enabled: form.enabled
-    })
-    ElMessage.success('添加成功')
+    dialogVisible.value = false
+    await fetchTree()
+  } catch {
+    ElMessage.error('操作失败')
   }
-  dialogVisible.value = false
 }
 
 const handleSave = async () => {
-  if (selectedNode.value) {
-    selectedNode.value.label = detailForm.label
-    selectedNode.value.remark = detailForm.remark
-    selectedNode.value.sortOrder = detailForm.sortOrder
-    selectedNode.value.enabled = detailForm.enabled
+  if (!selectedNode.value) return
+  try {
+    await updateOrg(selectedNode.value.id, {
+      label: detailForm.label,
+      remark: detailForm.remark,
+      sortOrder: detailForm.sortOrder,
+      enabled: detailForm.enabled
+    })
+    await fetchTree()
     ElMessage.success('保存成功')
+  } catch {
+    ElMessage.error('保存失败')
   }
 }
 </script>

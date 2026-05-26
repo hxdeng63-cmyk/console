@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="microservice">
     <!-- 操作栏 -->
     <div class="toolbar">
@@ -10,7 +10,7 @@
     </div>
 
     <!-- 表格 -->
-    <el-table :data="pagedData" border stripe>
+    <el-table :data="pagedData" border stripe v-loading="loading">
       <el-table-column prop="code" label="服务编码" width="200" />
       <el-table-column prop="name" label="服务名称" min-width="200" />
       <el-table-column label="操作" width="150" fixed="right">
@@ -27,7 +27,7 @@
         v-model:current-page="currentPage"
         v-model:page-size="pageSize"
         :page-sizes="[10, 20, 50, 100]"
-        :total="tableData.length"
+        :total="total"
         layout="total, sizes, prev, pager, next, jumper"
         background
       />
@@ -51,16 +51,22 @@
 
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSubmit">确定</el-button>
+        <el-button type="primary" @click="handleSubmit" :loading="submitLoading">确定</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive } from 'vue'
+import { ref, computed, reactive, onMounted, watch } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  getMicroservices,
+  createMicroservice,
+  updateMicroservice,
+  deleteMicroservice
+} from '@/api/microservices'
 
 interface ServiceItem {
   id: number
@@ -68,24 +74,40 @@ interface ServiceItem {
   name: string
 }
 
-const tableData = ref<ServiceItem[]>([
-  { id: 1, code: '001', name: '认证控制台服务' },
-  { id: 2, code: '002', name: '分析布控服务' },
-  { id: 3, code: '003', name: '推送服务' },
-  { id: 4, code: '004', name: '模型应用' },
-  { id: 5, code: '005', name: 'AI预警' },
-  { id: 7, code: '007', name: '开放接口服务' },
-  { id: 8, code: '008', name: '算法仓库' },
-  { id: 9, code: '009', name: 'onvif视频接入' },
-  { id: 10, code: '010', name: '雅戈尔标注' },
-])
-
+const tableData = ref<ServiceItem[]>([])
+const total = ref(0)
+const loading = ref(false)
+const submitLoading = ref(false)
 const currentPage = ref(1)
 const pageSize = ref(10)
 
 const pagedData = computed(() => {
   const start = (currentPage.value - 1) * pageSize.value
   return tableData.value.slice(start, start + pageSize.value)
+})
+
+const fetchData = async () => {
+  loading.value = true
+  try {
+    const res = await getMicroservices({
+      pageNo: currentPage.value,
+      pageSize: pageSize.value
+    })
+    tableData.value = res.items || []
+    total.value = res.total || 0
+  } catch (error) {
+    console.error('Failed to fetch microservices:', error)
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(() => {
+  fetchData()
+})
+
+watch([currentPage, pageSize], () => {
+  fetchData()
 })
 
 const dialogVisible = ref(false)
@@ -125,29 +147,40 @@ const handleSubmit = async () => {
   const valid = await (formRef.value as any).validate().catch(() => false)
   if (!valid) return
 
-  if (editingId.value) {
-    const idx = tableData.value.findIndex(item => item.id === editingId.value)
-    if (idx !== -1) {
-      tableData.value[idx] = { id: editingId.value, code: form.code, name: form.name }
+  submitLoading.value = true
+  try {
+    if (editingId.value) {
+      await updateMicroservice(editingId.value, {
+        code: form.code,
+        name: form.name
+      })
+      ElMessage.success('编辑成功')
+    } else {
+      await createMicroservice({
+        code: form.code,
+        name: form.name
+      })
+      ElMessage.success('新增成功')
     }
-    ElMessage.success('编辑成功')
-  } else {
-    tableData.value.push({
-      id: Date.now(),
-      code: form.code,
-      name: form.name
-    })
-    ElMessage.success('新增成功')
+    dialogVisible.value = false
+    fetchData()
+  } catch (error) {
+    console.error('Submit failed:', error)
+  } finally {
+    submitLoading.value = false
   }
-  dialogVisible.value = false
 }
 
 const handleDelete = (row: ServiceItem) => {
   ElMessageBox.confirm('确定删除该微服务吗？', '提示', { type: 'warning' })
-    .then(() => {
-      const idx = tableData.value.findIndex(item => item.id === row.id)
-      if (idx !== -1) tableData.value.splice(idx, 1)
-      ElMessage.success('删除成功')
+    .then(async () => {
+      try {
+        await deleteMicroservice(row.id)
+        ElMessage.success('删除成功')
+        fetchData()
+      } catch (error) {
+        console.error('Delete failed:', error)
+      }
     })
     .catch(() => {})
 }

@@ -147,9 +147,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive } from 'vue'
+import { ref, computed, reactive, onMounted } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getRoles, createRole, updateRole, deleteRole } from '@/api/roles.js'
 
 interface RoleItem {
   id: string
@@ -174,35 +175,23 @@ const searchForm = reactive({
 })
 
 const loading = ref(false)
-const tableData = ref<RoleItem[]>([
-  {
-    id: '0723',
-    name: '普通用户',
-    definition: '普通用户',
-    inUse: true,
-    usageCount: 5,
-    accounts: [
-      { username: 'wangli', name: '王丽', phone: '13800138003', org: '青海海东分公司/技术部' },
-      { username: 'zhaoming', name: '赵明', phone: '13800138004', org: '青海海东分公司/运维部' },
-      { username: 'liuyang', name: '刘洋', phone: '13800138006', org: '青海西宁分公司/研发部' },
-      { username: 'zhengxia', name: '郑霞', phone: '13800138009', org: '青海西宁分公司/测试部' },
-      { username: 'wanghong', name: '王红', phone: '13800138010', org: '青海西宁分公司/行政部' }
-    ]
-  },
-  {
-    id: '888',
-    name: '系统管理员',
-    definition: '系统管理员',
-    inUse: true,
-    usageCount: 4,
-    accounts: [
-      { username: 'admin', name: '系统管理员', phone: '13800138001', org: '青海海东分公司/综合部' },
-      { username: 'zhangwei', name: '张伟', phone: '13800138002', org: '青海海东分公司/技术部' },
-      { username: 'sunlei', name: '孙磊', phone: '13800138005', org: '青海海东分公司/运维部' },
-      { username: 'wuqiang', name: '吴强', phone: '13800138008', org: '青海西宁分公司/研发部' }
-    ]
+const tableData = ref<RoleItem[]>([])
+
+const loadRoles = async () => {
+  loading.value = true
+  try {
+    const data = await getRoles()
+    tableData.value = Array.isArray(data) ? data : []
+  } catch (err) {
+    ElMessage.error('加载角色列表失败')
+  } finally {
+    loading.value = false
   }
-])
+}
+
+onMounted(() => {
+  loadRoles()
+})
 
 const currentPage = ref(1)
 const pageSize = ref(10)
@@ -249,42 +238,7 @@ const permissionForm = reactive({
 
 const accountList = ref<{ username: string; name: string; phone: string; org: string }[]>([])
 
-const permissionTreeData: PermissionNode[] = [
-  {
-    id: '1',
-    label: '系统管理',
-    children: [
-      { id: '1-1', label: '用户管理' },
-      { id: '1-2', label: '角色管理' },
-      { id: '1-3', label: '组织管理' }
-    ]
-  },
-  {
-    id: '2',
-    label: '设备管理',
-    children: [
-      { id: '2-1', label: '设备列表' },
-      { id: '2-2', label: '设备组管理' },
-      { id: '2-3', label: '区域管理' }
-    ]
-  },
-  {
-    id: '3',
-    label: '算法管理',
-    children: [
-      { id: '3-1', label: '算法服务' },
-      { id: '3-2', label: '事件管理' }
-    ]
-  },
-  {
-    id: '4',
-    label: '智能联动',
-    children: [
-      { id: '4-1', label: '联动规则' },
-      { id: '4-2', label: '推送历史' }
-    ]
-  }
-]
+const permissionTreeData: PermissionNode[] = []
 
 const rules = {
   id: [{ required: true, message: '请输入角色ID', trigger: 'blur' }],
@@ -310,9 +264,7 @@ const openModal = (type: 'add' | 'edit' | 'detail' | 'permission', row?: RoleIte
     })
     dialogVisible.value = true
   } else if (type === 'detail' && row) {
-    accountList.value = row.accounts || [
-      { username: 'admin', name: '管理员', phone: '13800138000', org: '技术部' }
-    ]
+    accountList.value = row.accounts || []
     detailDialogVisible.value = true
   } else if (type === 'permission' && row) {
     permissionForm.name = row.name
@@ -324,24 +276,19 @@ const handleSubmit = async () => {
   const valid = await (formRef.value as any).validate().catch(() => false)
   if (!valid) return
 
-  if (editingId.value) {
-    const idx = tableData.value.findIndex(item => item.id === editingId.value)
-    if (idx !== -1) {
-      Object.assign(tableData.value[idx], { ...form, usageCount: tableData.value[idx].usageCount })
+  try {
+    if (editingId.value) {
+      await updateRole(editingId.value, { ...form })
+      ElMessage.success('编辑成功')
+    } else {
+      await createRole({ ...form, usageCount: 0, accounts: [] })
+      ElMessage.success('新增成功')
     }
-    ElMessage.success('编辑成功')
-  } else {
-    tableData.value.push({
-      id: form.id,
-      name: form.name,
-      definition: form.definition,
-      inUse: form.inUse,
-      usageCount: 0,
-      accounts: []
-    })
-    ElMessage.success('新增成功')
+    await loadRoles()
+    dialogVisible.value = false
+  } catch (err) {
+    // API error already handled by interceptor
   }
-  dialogVisible.value = false
 }
 
 const handlePermissionSubmit = () => {
@@ -349,14 +296,17 @@ const handlePermissionSubmit = () => {
   permissionDialogVisible.value = false
 }
 
-const handleDelete = (row: RoleItem) => {
-  ElMessageBox.confirm('确定删除该角色吗？', '提示', { type: 'warning' })
-    .then(() => {
-      const idx = tableData.value.findIndex(item => item.id === row.id)
-      if (idx !== -1) tableData.value.splice(idx, 1)
-      ElMessage.success('删除成功')
-    })
-    .catch(() => {})
+const handleDelete = async (row: RoleItem) => {
+  try {
+    await ElMessageBox.confirm('确定删除该角色吗？', '提示', { type: 'warning' })
+    await deleteRole(row.id)
+    ElMessage.success('删除成功')
+    await loadRoles()
+  } catch (err: any) {
+    if (err !== 'cancel') {
+      // API error already handled by interceptor
+    }
+  }
 }
 </script>
 

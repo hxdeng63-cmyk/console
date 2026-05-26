@@ -78,7 +78,7 @@
             <div class="device-list">
               <div v-if="filteredDevices.length === 0" class="empty-text">暂无数据</div>
               <el-radio-group v-else v-model="form.device">
-                <el-radio v-for="device in filteredDevices" :key="device" :label="device">{{ device }}</el-radio>
+                <el-radio v-for="device in filteredDevices" :key="device" :value="device">{{ device }}</el-radio>
               </el-radio-group>
             </div>
           </div>
@@ -86,22 +86,22 @@
         <el-form-item label="事件选择" prop="events">
           <div class="event-selector">
             <el-checkbox-group v-model="form.events">
-              <el-checkbox label="疑似事故">疑似事故</el-checkbox>
-              <el-checkbox label="作业人员">作业人员</el-checkbox>
-              <el-checkbox label="交通阻塞">交通阻塞</el-checkbox>
-              <el-checkbox label="异常停车">异常停车</el-checkbox>
-              <el-checkbox label="烟雾">烟雾</el-checkbox>
-              <el-checkbox label="作业车辆识别">作业车辆识别</el-checkbox>
-              <el-checkbox label="非机动车驶入">非机动车驶入</el-checkbox>
-              <el-checkbox label="占用应急车道">占用应急车道</el-checkbox>
-              <el-checkbox label="逆向行驶">逆向行驶</el-checkbox>
-              <el-checkbox label="通过卡车数量">通过卡车数量</el-checkbox>
-              <el-checkbox label="通过大客车数量">通过大客车数量</el-checkbox>
-              <el-checkbox label="通过摩托车数量">通过摩托车数量</el-checkbox>
-              <el-checkbox label="通过小汽车数量">通过小汽车数量</el-checkbox>
-              <el-checkbox label="下行车流量">下行车流量</el-checkbox>
-              <el-checkbox label="上行车流量">上行车流量</el-checkbox>
-              <el-checkbox label="行人闯入">行人闯入</el-checkbox>
+              <el-checkbox value="疑似事故">疑似事故</el-checkbox>
+              <el-checkbox value="作业人员">作业人员</el-checkbox>
+              <el-checkbox value="交通阻塞">交通阻塞</el-checkbox>
+              <el-checkbox value="异常停车">异常停车</el-checkbox>
+              <el-checkbox value="烟雾">烟雾</el-checkbox>
+              <el-checkbox value="作业车辆识别">作业车辆识别</el-checkbox>
+              <el-checkbox value="非机动车驶入">非机动车驶入</el-checkbox>
+              <el-checkbox value="占用应急车道">占用应急车道</el-checkbox>
+              <el-checkbox value="逆向行驶">逆向行驶</el-checkbox>
+              <el-checkbox value="通过卡车数量">通过卡车数量</el-checkbox>
+              <el-checkbox value="通过大客车数量">通过大客车数量</el-checkbox>
+              <el-checkbox value="通过摩托车数量">通过摩托车数量</el-checkbox>
+              <el-checkbox value="通过小汽车数量">通过小汽车数量</el-checkbox>
+              <el-checkbox value="下行车流量">下行车流量</el-checkbox>
+              <el-checkbox value="上行车流量">上行车流量</el-checkbox>
+              <el-checkbox value="行人闯入">行人闯入</el-checkbox>
             </el-checkbox-group>
           </div>
         </el-form-item>
@@ -138,9 +138,7 @@ interface RecordRule {
   status: boolean
 }
 
-const tableData = ref<RecordRule[]>([
-  { id: 1, ruleName: '海东分公司', device: '摄像头A', events: ['作业人员', '异常停车', '行人闯入'], recordDuration: 16, status: false },
-])
+const tableData = ref<RecordRule[]>([])
 
 const masterSwitch = ref(true)
 const currentPage = ref(1)

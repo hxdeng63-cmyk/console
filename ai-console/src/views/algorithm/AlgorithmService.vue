@@ -16,8 +16,8 @@
       <el-table-column prop="algorithmConfig" label="算法设置" min-width="150" show-overflow-tooltip />
       <el-table-column label="操作" width="220" fixed="right">
         <template #default="{ row }">
-          <el-button link style="color: #00E5FF; background: rgba(0, 229, 255, 0.15); border: 1px solid rgba(0, 229, 255, 0.4); border-radius: 4px; padding: 2px 8px; font-weight: 600; text-shadow: none;" size="small" @click="openEditModal(row)">编辑</el-button>
-          <el-button link style="color: #00E5FF; background: rgba(0, 229, 255, 0.15); border: 1px solid rgba(0, 229, 255, 0.4); border-radius: 4px; padding: 2px 8px; font-weight: 600; text-shadow: none;" size="small" @click="openAddressModal(row)">算法地址管理</el-button>
+          <el-button link class="action-edit" size="small" @click="openEditModal(row)">编辑</el-button>
+          <el-button link class="action-edit" size="small" @click="openAddressModal(row)">算法地址管理</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -58,7 +58,7 @@
                 <el-icon><Delete /></el-icon>
               </el-button>
             </div>
-            <el-button link style="color: #00E5FF; background: rgba(0, 229, 255, 0.15); border: 1px solid rgba(0, 229, 255, 0.4); border-radius: 4px; padding: 2px 8px; font-weight: 600; text-shadow: none;" @click="addConfig">
+            <el-button link class="action-edit" @click="addConfig">
               <el-icon><Plus /></el-icon>添加设置
             </el-button>
           </div>
@@ -87,8 +87,8 @@
         <el-table-column prop="annotationUrl" label="标注地址" min-width="250" show-overflow-tooltip />
         <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
-            <el-button link style="color: #00E5FF; background: rgba(0, 229, 255, 0.15); border: 1px solid rgba(0, 229, 255, 0.4); border-radius: 4px; padding: 2px 8px; font-weight: 600; text-shadow: none;" size="small" @click="openAddressEditModal(row)">编辑</el-button>
-            <el-button link style="color: #FF006E; background: rgba(255, 0, 110, 0.15); border: 1px solid rgba(255, 0, 110, 0.4); border-radius: 4px; padding: 2px 8px; font-weight: 600; text-shadow: none;" size="small" @click="handleDeleteAddress(row)">删除</el-button>
+            <el-button link class="action-edit" size="small" @click="openAddressEditModal(row)">编辑</el-button>
+            <el-button link class="action-delete" size="small" @click="handleDeleteAddress(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -123,7 +123,7 @@
 import { ref, computed, reactive, onMounted } from 'vue'
 import { Plus, Delete } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getAlgorithmServices, createAlgorithmService, updateAlgorithmService, deleteAlgorithmService } from '@/api/algorithm-services'
+import { getAlgorithmServices, createAlgorithmService, updateAlgorithmService } from '@/api/algorithm-services'
 
 interface ServiceItem {
   id: number
@@ -238,21 +238,6 @@ const handleSubmit = async () => {
   }
 }
 
-const handleDelete = (row: ServiceItem) => {
-  ElMessageBox.confirm(`确定删除服务 "${row.serviceName}" 吗？`, '提示', { type: 'warning' })
-    .then(async () => {
-      try {
-        await deleteAlgorithmService(row.id)
-        const idx = tableData.value.findIndex(item => item.id === row.id)
-        if (idx !== -1) tableData.value.splice(idx, 1)
-        ElMessage.success('删除成功')
-      } catch (error: any) {
-        ElMessage.error(error.message || '删除失败')
-      }
-    })
-    .catch(() => {})
-}
-
 // 算法地址管理弹窗
 const addressDialogVisible = ref(false)
 const addressList = ref<AddressItem[]>([])
@@ -260,10 +245,7 @@ const currentServiceId = ref<number | null>(null)
 
 const openAddressModal = (row: ServiceItem) => {
   currentServiceId.value = row.id
-  // 模拟该服务的地址列表
-  addressList.value = [
-    { id: 1, serviceUrl: 'http://172.17.0.1:8080/api/alcontrol', annotationUrl: 'http://172.17.0.1:8080/api/setroi' },
-  ]
+  addressList.value = []
   addressDialogVisible.value = true
 }
 
@@ -380,5 +362,37 @@ const handleDeleteAddress = (row: AddressItem) => {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.action-edit {
+  color: #00E5FF;
+  background: rgba(0, 229, 255, 0.15);
+  border: 1px solid rgba(0, 229, 255, 0.4);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-weight: 600;
+  text-shadow: none;
+}
+
+.action-edit:hover {
+  color: #00FF88;
+  background: rgba(0, 229, 255, 0.25);
+  border-color: #00E5FF;
+}
+
+.action-delete {
+  color: #FF006E;
+  background: rgba(255, 0, 110, 0.15);
+  border: 1px solid rgba(255, 0, 110, 0.4);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-weight: 600;
+  text-shadow: none;
+}
+
+.action-delete:hover {
+  color: #FF4D6D;
+  background: rgba(255, 0, 110, 0.25);
+  border-color: #FF006E;
 }
 </style>

@@ -21,7 +21,7 @@
     </div>
 
     <!-- 表格 -->
-    <el-table :data="pagedData" border stripe @selection-change="onSelectionChange">
+    <el-table :data="pagedData" v-loading="loading" border stripe @selection-change="onSelectionChange">
       <el-table-column type="selection" width="55" />
       <el-table-column prop="ip" label="IP" min-width="180" />
       <el-table-column prop="vendor" label="厂商" width="150" />
@@ -35,8 +35,8 @@
       </el-table-column>
       <el-table-column label="操作" width="150" fixed="right">
         <template #default="{ row }">
-          <el-button link style="color: #00E5FF; background: rgba(0, 229, 255, 0.15); border: 1px solid rgba(0, 229, 255, 0.4); border-radius: 4px; padding: 2px 8px; font-weight: 600; text-shadow: none;" size="small" @click="openModal('edit', row)">编辑</el-button>
-          <el-button link style="color: #FF006E; background: rgba(255, 0, 110, 0.15); border: 1px solid rgba(255, 0, 110, 0.4); border-radius: 4px; padding: 2px 8px; font-weight: 600; text-shadow: none;" size="small" @click="handleDelete(row)">删除</el-button>
+          <el-button link class="action-edit" size="small" @click="openModal('edit', row)">编辑</el-button>
+          <el-button link class="action-delete" size="small" @click="handleDelete(row)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -95,9 +95,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive } from 'vue'
+import { ref, computed, reactive, onMounted } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getDevices } from '@/api/devices'
 
 interface OnvifDevice {
   id: number
@@ -115,11 +116,34 @@ const searchForm = reactive({
   vendor: ''
 })
 
-const tableData = ref<OnvifDevice[]>([
-  { id: 1, ip: '192.168.1.200', vendor: '海康威视', model: 'DS-2CD3T86F', port: 554, username: 'admin', password: 'admin123', status: '在线' },
-  { id: 2, ip: '192.168.1.201', vendor: '大华', model: 'DH-IPC-HFW', port: 554, username: 'admin', password: 'admin123', status: '在线' },
-  { id: 3, ip: '192.168.1.202', vendor: '宇视', model: 'IPC-S314', port: 554, username: 'admin', password: 'admin123', status: '离线' },
-])
+const loading = ref(false)
+const tableData = ref<OnvifDevice[]>([])
+
+const fetchDevices = async () => {
+  loading.value = true
+  try {
+    const data = await getDevices({ accessType: 'ONVIF' })
+    tableData.value = (data.items || data).map((item: any) => ({
+      id: item.id,
+      ip: item.ip || '',
+      vendor: item.vendor || '',
+      model: item.model || '',
+      port: item.port || 554,
+      username: item.username || '',
+      password: item.password || '',
+      status: item.status || '离线'
+    }))
+  } catch (error) {
+    console.error('Failed to load ONVIF devices:', error)
+    tableData.value = []
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(() => {
+  fetchDevices()
+})
 
 const currentPage = ref(1)
 const pageSize = ref(10)
@@ -147,7 +171,8 @@ const handleSearch = () => {
   ElMessage.success('正在搜索ONVIF设备...')
 }
 
-const handleRefresh = () => {
+const handleRefresh = async () => {
+  await fetchDevices()
   ElMessage.success('刷新成功')
 }
 
@@ -267,5 +292,37 @@ const handleDelete = (row: OnvifDevice) => {
   display: flex;
   justify-content: flex-end;
   margin-top: 16px;
+}
+
+.action-edit {
+  color: #00E5FF;
+  background: rgba(0, 229, 255, 0.15);
+  border: 1px solid rgba(0, 229, 255, 0.4);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-weight: 600;
+  text-shadow: none;
+}
+
+.action-edit:hover {
+  color: #00FF88;
+  background: rgba(0, 229, 255, 0.25);
+  border-color: #00E5FF;
+}
+
+.action-delete {
+  color: #FF006E;
+  background: rgba(255, 0, 110, 0.15);
+  border: 1px solid rgba(255, 0, 110, 0.4);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-weight: 600;
+  text-shadow: none;
+}
+
+.action-delete:hover {
+  color: #FF4D6D;
+  background: rgba(255, 0, 110, 0.25);
+  border-color: #FF006E;
 }
 </style>

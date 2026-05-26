@@ -62,7 +62,7 @@
           </el-button>
         </div>
 
-        <el-table :data="pagedLimitData" border stripe>
+        <el-table :data="pagedLimitData" border stripe v-loading="loading">
           <el-table-column prop="device" label="设备" min-width="150" />
           <el-table-column prop="timeInterval" label="时间间隔(s)" width="120" align="center" />
           <el-table-column prop="responseMode" label="响应方式" width="120" align="center" />
@@ -77,8 +77,8 @@
           </el-table-column>
           <el-table-column label="操作" width="120" fixed="right">
             <template #default="{ row }">
-              <el-button link style="color: #00E5FF; background: rgba(0, 229, 255, 0.15); border: 1px solid rgba(0, 229, 255, 0.4); border-radius: 4px; padding: 2px 8px; font-weight: 600; text-shadow: none;" size="small" @click="openLimitModal('edit', row)">编辑</el-button>
-              <el-button link style="color: #FF006E; background: rgba(255, 0, 110, 0.15); border: 1px solid rgba(255, 0, 110, 0.4); border-radius: 4px; padding: 2px 8px; font-weight: 600; text-shadow: none;" size="small" @click="handleDeleteLimit(row)">删除</el-button>
+              <el-button link class="action-edit" size="small" @click="openLimitModal('edit', row)">编辑</el-button>
+              <el-button link class="action-delete" size="small" @click="handleDeleteLimit(row)">删除</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -146,9 +146,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  getPopupSettings,
+  createPopupSetting,
+  updatePopupSetting,
+  deletePopupSetting
+} from '@/api/popup-settings.js'
 
 const form = reactive({
   popupEnabled: false,
@@ -160,6 +166,8 @@ const form = reactive({
 const saveSettings = () => {
   ElMessage.success('设置保存成功')
 }
+
+const loading = ref(false)
 
 // 事件限制管理
 interface LimitItem {
@@ -183,6 +191,23 @@ const pagedLimitData = computed(() => {
 const openLimitDialog = () => {
   limitDialogVisible.value = true
 }
+
+const fetchLimitList = async () => {
+  loading.value = true
+  try {
+    const data = await getPopupSettings()
+    limitList.value = (data?.items || data || []) as LimitItem[]
+  } catch (error) {
+    console.error('Failed to load popup settings:', error)
+    ElMessage.error('加载事件限制列表失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(() => {
+  fetchLimitList()
+})
 
 const limitFormVisible = ref(false)
 const limitDialogTitle = ref('添加限制')
@@ -229,38 +254,58 @@ const handleLimitSubmit = async () => {
   const valid = await (limitFormRef.value as any).validate().catch(() => false)
   if (!valid) return
 
-  if (editingLimitId.value) {
-    const idx = limitList.value.findIndex(item => item.id === editingLimitId.value)
-    if (idx !== -1) {
-      Object.assign(limitList.value[idx], {
+  try {
+    if (editingLimitId.value) {
+      await updatePopupSetting(editingLimitId.value, {
+        device: limitForm.device,
+        time_interval: limitForm.timeInterval,
+        response_mode: limitForm.responseMode,
+        enabled: limitForm.enabled
+      })
+      const idx = limitList.value.findIndex(item => item.id === editingLimitId.value)
+      if (idx !== -1) {
+        Object.assign(limitList.value[idx], {
+          device: limitForm.device,
+          timeInterval: limitForm.timeInterval,
+          responseMode: limitForm.responseMode,
+          enabled: limitForm.enabled
+        })
+      }
+      ElMessage.success('编辑成功')
+    } else {
+      const res = await createPopupSetting({
+        device: limitForm.device,
+        time_interval: limitForm.timeInterval,
+        response_mode: limitForm.responseMode,
+        enabled: limitForm.enabled
+      })
+      limitList.value.push({
+        id: res?.id || Date.now(),
         device: limitForm.device,
         timeInterval: limitForm.timeInterval,
         responseMode: limitForm.responseMode,
         enabled: limitForm.enabled
       })
+      ElMessage.success('添加成功')
     }
-    ElMessage.success('编辑成功')
-  } else {
-    limitList.value.push({
-      id: Date.now(),
-      device: limitForm.device,
-      timeInterval: limitForm.timeInterval,
-      responseMode: limitForm.responseMode,
-      enabled: limitForm.enabled
-    })
-    ElMessage.success('添加成功')
+    limitFormVisible.value = false
+  } catch (error: any) {
+    ElMessage.error(error.message || '操作失败')
   }
-  limitFormVisible.value = false
 }
 
-const handleDeleteLimit = (row: LimitItem) => {
-  ElMessageBox.confirm(`确定删除该限制规则吗？`, '提示', { type: 'warning' })
-    .then(() => {
-      const idx = limitList.value.findIndex(item => item.id === row.id)
-      if (idx !== -1) limitList.value.splice(idx, 1)
-      ElMessage.success('删除成功')
-    })
-    .catch(() => {})
+const handleDeleteLimit = async (row: LimitItem) => {
+  try {
+    await ElMessageBox.confirm(`确定删除该限制规则吗？`, '提示', { type: 'warning' })
+    await deletePopupSetting(row.id)
+    const idx = limitList.value.findIndex(item => item.id === row.id)
+    if (idx !== -1) limitList.value.splice(idx, 1)
+    ElMessage.success('删除成功')
+  } catch (error: any) {
+    if (error !== 'cancel') {
+      ElMessage.error(error.message || '删除失败')
+    }
+  }
 }
 </script>
 
@@ -336,5 +381,37 @@ const handleDeleteLimit = (row: LimitItem) => {
   display: flex;
   justify-content: flex-end;
   margin-top: 16px;
+}
+
+.action-edit {
+  color: #00E5FF;
+  background: rgba(0, 229, 255, 0.15);
+  border: 1px solid rgba(0, 229, 255, 0.4);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-weight: 600;
+  text-shadow: none;
+}
+
+.action-edit:hover {
+  color: #00FF88;
+  background: rgba(0, 229, 255, 0.25);
+  border-color: #00E5FF;
+}
+
+.action-delete {
+  color: #FF006E;
+  background: rgba(255, 0, 110, 0.15);
+  border: 1px solid rgba(255, 0, 110, 0.4);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-weight: 600;
+  text-shadow: none;
+}
+
+.action-delete:hover {
+  color: #FF4D6D;
+  background: rgba(255, 0, 110, 0.25);
+  border-color: #FF006E;
 }
 </style>

@@ -264,10 +264,33 @@ const loadData = async () => {
       pageSize: pageSize.value,
       ...searchForm
     })
-    if (res.code === 0 && res.data) {
-      tableData.value = res.data.list || []
-      total.value = res.data.total || 0
-    }
+    const items = res.items || []
+    total.value = res.total || 0
+
+    // Group by resourceGroup to build tree structure
+    const groupMap = new Map<string, any>()
+    items.forEach((item: any) => {
+      const group = item.resourceGroup || item.resource_group || '默认分组'
+      if (!groupMap.has(group)) {
+        groupMap.set(group, {
+          id: `group-${group}`,
+          resource: group,
+          resourceGroup: group,
+          serviceCode: item.serviceCode || item.service_code || '',
+          description: '',
+          hidden: false,
+          method: '',
+          isParent: true,
+          children: []
+        })
+      }
+      groupMap.get(group).children.push({
+        ...item,
+        isParent: false
+      })
+    })
+
+    tableData.value = Array.from(groupMap.values())
   } catch (error) {
     console.error('Failed to load resources:', error)
   } finally {

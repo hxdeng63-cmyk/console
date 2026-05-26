@@ -47,8 +47,8 @@
     <!-- 视图切换 -->
     <div class="view-toggle">
       <el-radio-group v-model="viewMode">
-        <el-radio-button label="list">列表模式</el-radio-button>
-        <el-radio-button label="image">图片卡片模式</el-radio-button>
+        <el-radio-button value="list">列表模式</el-radio-button>
+        <el-radio-button value="image">图片卡片模式</el-radio-button>
       </el-radio-group>
     </div>
 
@@ -201,8 +201,8 @@
         <div class="export-format">
           <span>导出格式：</span>
           <el-radio-group v-model="exportForm.format">
-            <el-radio label="excel">Excel</el-radio>
-            <el-radio label="csv">CSV</el-radio>
+            <el-radio value="excel">Excel</el-radio>
+            <el-radio value="csv">CSV</el-radio>
           </el-radio-group>
         </div>
       </div>
@@ -378,92 +378,7 @@ const penaltyRules = {
   reason: [{ required: true, message: '请输入事由', trigger: 'blur' }]
 }
 
-const tableData = ref<EventItem[]>([
-  {
-    id: 1,
-    companyName: '海东分公司',
-    regionName: 'S201',
-    deviceName: 'S201海东分公司 K228+300下行(道路沿线)',
-    algorithmName: '交通算法',
-    eventTypeName: '异常停车',
-    eventDetail: '异常停车',
-    processStatus: '未处置',
-    reportTime: '2026-04-16 09:55:16',
-    isCompliant: '否',
-    imageUrl: 'https://picsum.photos/seed/event1/400/300',
-    detectBox: { top: '30%', left: '25%', width: '50%', height: '40%' }
-  },
-  {
-    id: 2,
-    companyName: '海东分公司',
-    regionName: 'G6',
-    deviceName: 'G6京藏高速 K800+200上行(道路沿线)',
-    algorithmName: '交通算法',
-    eventTypeName: '行人闯入',
-    eventDetail: '行人闯入',
-    processStatus: '未处置',
-    reportTime: '2026-04-16 09:34:29',
-    isCompliant: '否',
-    imageUrl: 'https://picsum.photos/seed/event2/400/300',
-    detectBox: { top: '45%', left: '40%', width: '35%', height: '30%' }
-  },
-  {
-    id: 3,
-    companyName: '海东分公司',
-    regionName: 'S201',
-    deviceName: 'S201海东分公司 K3+240下行(道路沿线)',
-    algorithmName: '交通算法',
-    eventTypeName: '交通阻塞',
-    eventDetail: '交通阻塞',
-    processStatus: '已处置',
-    reportTime: '2026-04-15 18:20:00',
-    isCompliant: '是',
-    imageUrl: 'https://picsum.photos/seed/event3/400/300',
-    detectBox: { top: '20%', left: '15%', width: '60%', height: '50%' }
-  },
-  {
-    id: 4,
-    companyName: '西宁分公司',
-    regionName: 'G6',
-    deviceName: 'G6京藏高速 K600+100上行(道路沿线)',
-    algorithmName: '交通算法',
-    eventTypeName: '异常停车',
-    eventDetail: '异常停车',
-    processStatus: '处理中',
-    reportTime: '2026-04-15 16:45:00',
-    isCompliant: '否',
-    imageUrl: 'https://picsum.photos/seed/event4/400/300',
-    detectBox: { top: '35%', left: '30%', width: '45%', height: '35%' }
-  },
-  {
-    id: 5,
-    companyName: '西宁分公司',
-    regionName: 'S201',
-    deviceName: 'S201西宁分公司 K5+100下行(道路沿线)',
-    algorithmName: '交通算法',
-    eventTypeName: '非机动车驶入',
-    eventDetail: '非机动车驶入',
-    processStatus: '未处置',
-    reportTime: '2026-04-15 14:30:00',
-    isCompliant: '否',
-    imageUrl: 'https://picsum.photos/seed/event5/400/300',
-    detectBox: { top: '50%', left: '35%', width: '40%', height: '30%' }
-  },
-  {
-    id: 6,
-    companyName: '西宁分公司',
-    regionName: 'G6',
-    deviceName: 'G6京藏高速 K700+300下行(道路沿线)',
-    algorithmName: '交通算法',
-    eventTypeName: '异常停车',
-    eventDetail: '异常停车',
-    processStatus: '已处置',
-    reportTime: '2026-04-14 12:15:00',
-    isCompliant: '是',
-    imageUrl: 'https://picsum.photos/seed/event6/400/300',
-    detectBox: { top: '25%', left: '20%', width: '55%', height: '45%' }
-  }
-])
+const tableData = ref<EventItem[]>([])
 
 const filteredData = computed(() => {
   return tableData.value.filter(item => {

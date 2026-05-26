@@ -11,7 +11,7 @@
     </div>
 
     <!-- 表格 -->
-    <el-table :data="pagedData" border stripe>
+    <el-table :data="pagedData" border stripe v-loading="loading">
       <el-table-column prop="tagName" label="标签名称" min-width="200" show-overflow-tooltip />
       <el-table-column prop="tagLevel" label="标签等级" width="150" align="center">
         <template #default="{ row }">
@@ -20,8 +20,8 @@
       </el-table-column>
       <el-table-column label="操作" width="150" fixed="right">
         <template #default="{ row }">
-          <el-button link style="color: #00E5FF; background: rgba(0, 229, 255, 0.15); border: 1px solid rgba(0, 229, 255, 0.4); border-radius: 4px; padding: 2px 8px; font-weight: 600; text-shadow: none;" size="small" @click="openModal('edit', row)">编辑</el-button>
-          <el-button link style="color: #FF006E; background: rgba(255, 0, 110, 0.15); border: 1px solid rgba(255, 0, 110, 0.4); border-radius: 4px; padding: 2px 8px; font-weight: 600; text-shadow: none;" size="small" @click="handleDelete(row)">删除</el-button>
+          <el-button link class="action-edit" size="small" @click="openModal('edit', row)">编辑</el-button>
+          <el-button link class="action-delete" size="small" @click="handleDelete(row)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -66,9 +66,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive } from 'vue'
+import { ref, computed, reactive, onMounted } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import request from '@/api/index.js'
 
 interface TagItem {
   id: number
@@ -76,12 +77,30 @@ interface TagItem {
   tagLevel: string
 }
 
-const tableData = ref<TagItem[]>([
-  { id: 1, tagName: '高温告警', tagLevel: '一级' },
-  { id: 2, tagName: '人员聚集', tagLevel: '二级' },
-  { id: 3, tagName: '设备离线', tagLevel: '二级' },
-  { id: 4, tagName: '周界入侵', tagLevel: '一级' },
-])
+const tableData = ref<TagItem[]>([])
+const loading = ref(false)
+
+const fetchTags = async () => {
+  loading.value = true
+  try {
+    const res: any = await request.get('/dispose-tags', { params: { page: 1, page_size: 100 } })
+    const items = res?.items || res || []
+    tableData.value = items.map((item: any) => ({
+      id: item.id,
+      tagName: item.name || item.tag_name || '',
+      tagLevel: item.level || item.tag_level || '二级'
+    }))
+  } catch (error) {
+    console.error('Failed to load dispose tags:', error)
+    ElMessage.error('加载处置标签失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(() => {
+  fetchTags()
+})
 
 const currentPage = ref(1)
 const pageSize = ref(10)
@@ -136,34 +155,50 @@ const handleSubmit = async () => {
   const valid = await (formRef.value as any).validate().catch(() => false)
   if (!valid) return
 
-  if (editingId.value) {
-    const idx = tableData.value.findIndex(item => item.id === editingId.value)
-    if (idx !== -1) {
-      Object.assign(tableData.value[idx], {
+  try {
+    if (editingId.value) {
+      await request.put(`/dispose-tags/${editingId.value}`, {
+        name: form.tagName,
+        level: form.tagLevel
+      })
+      const idx = tableData.value.findIndex(item => item.id === editingId.value)
+      if (idx !== -1) {
+        Object.assign(tableData.value[idx], {
+          tagName: form.tagName,
+          tagLevel: form.tagLevel
+        })
+      }
+      ElMessage.success('编辑成功')
+    } else {
+      const res: any = await request.post('/dispose-tags', {
+        name: form.tagName,
+        level: form.tagLevel
+      })
+      tableData.value.push({
+        id: res?.id || Date.now(),
         tagName: form.tagName,
         tagLevel: form.tagLevel
       })
+      ElMessage.success('添加成功')
     }
-    ElMessage.success('编辑成功')
-  } else {
-    tableData.value.push({
-      id: Date.now(),
-      tagName: form.tagName,
-      tagLevel: form.tagLevel
-    })
-    ElMessage.success('添加成功')
+    dialogVisible.value = false
+  } catch (error: any) {
+    ElMessage.error(error.message || '操作失败')
   }
-  dialogVisible.value = false
 }
 
-const handleDelete = (row: TagItem) => {
-  ElMessageBox.confirm(`确定删除标签 "${row.tagName}" 吗？`, '提示', { type: 'warning' })
-    .then(() => {
-      const idx = tableData.value.findIndex(item => item.id === row.id)
-      if (idx !== -1) tableData.value.splice(idx, 1)
-      ElMessage.success('删除成功')
-    })
-    .catch(() => {})
+const handleDelete = async (row: TagItem) => {
+  try {
+    await ElMessageBox.confirm(`确定删除标签 "${row.tagName}" 吗？`, '提示', { type: 'warning' })
+    await request.delete(`/dispose-tags/${row.id}`)
+    const idx = tableData.value.findIndex(item => item.id === row.id)
+    if (idx !== -1) tableData.value.splice(idx, 1)
+    ElMessage.success('删除成功')
+  } catch (error: any) {
+    if (error !== 'cancel') {
+      ElMessage.error(error.message || '删除失败')
+    }
+  }
 }
 </script>
 
@@ -198,5 +233,37 @@ const handleDelete = (row: TagItem) => {
   display: flex;
   justify-content: flex-end;
   margin-top: 16px;
+}
+
+.action-edit {
+  color: #00E5FF;
+  background: rgba(0, 229, 255, 0.15);
+  border: 1px solid rgba(0, 229, 255, 0.4);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-weight: 600;
+  text-shadow: none;
+}
+
+.action-edit:hover {
+  color: #00FF88;
+  background: rgba(0, 229, 255, 0.25);
+  border-color: #00E5FF;
+}
+
+.action-delete {
+  color: #FF006E;
+  background: rgba(255, 0, 110, 0.15);
+  border: 1px solid rgba(255, 0, 110, 0.4);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-weight: 600;
+  text-shadow: none;
+}
+
+.action-delete:hover {
+  color: #FF4D6D;
+  background: rgba(255, 0, 110, 0.25);
+  border-color: #FF006E;
 }
 </style>

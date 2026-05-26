@@ -1,180 +1,141 @@
-﻿<template>
+<template>
   <div class="annotation-page">
-    <ThreeColumnLayout>
-      <!-- Left Column: Selectors -->
-      <template #left>
-        <div class="left-panel">
-          <div class="panel-section">
-            <h4 class="section-title">
-              <span class="required-mark">*</span>选择布控
-            </h4>
-            <el-select v-model="selectedDeployment" placeholder="请选择布控" style="width: 100%" clearable>
-              <el-option
-                v-for="item in deployments"
-                :key="item.id"
-                :label="item.name"
-                :value="item.id"
-              />
-            </el-select>
-          </div>
+    <!-- 顶部工具栏 -->
+    <div class="top-toolbar">
+      <div class="toolbar-left">
+        <div class="selector-item">
+          <span class="required-mark">*</span>
+          <span class="selector-label">选择布控</span>
+          <el-select v-model="selectedDeployment" placeholder="请选择布控" style="width: 180px" clearable>
+            <el-option v-for="item in deployments" :key="item.id" :label="item.name" :value="item.id" />
+          </el-select>
+        </div>
+        <div class="selector-item">
+          <span class="required-mark">*</span>
+          <span class="selector-label">选择设备</span>
+          <el-select v-model="selectedDevice" placeholder="请在选择布控后选择设备" style="width: 260px" clearable>
+            <el-option v-for="item in availableDevices" :key="item.id" :label="item.name" :value="item.id" />
+          </el-select>
+        </div>
+        <el-button type="primary" class="query-btn" @click="handleQuery">
+          <el-icon><Search /></el-icon>查询
+        </el-button>
+      </div>
+      <div class="toolbar-right">
+        <el-button class="action-btn" @click="handleCaptureFrame">
+          <el-icon><Camera /></el-icon>抽帧
+        </el-button>
+        <el-button class="action-btn" @click="handleImportBg">
+          <el-icon><Upload /></el-icon>导入
+        </el-button>
+        <el-button class="action-btn danger" @click="handleDelete">
+          <el-icon><Delete /></el-icon>删除
+        </el-button>
+        <el-button class="action-btn" @click="handleUpdateBg">
+          <el-icon><Refresh /></el-icon>更新底图
+        </el-button>
+      </div>
+    </div>
 
-          <div class="panel-section">
-            <h4 class="section-title">
-              <span class="required-mark">*</span>选择设备
-            </h4>
-            <el-select v-model="selectedDevice" placeholder="请在选择布控后选择设备" style="width: 100%" clearable>
-              <el-option
-                v-for="item in devices"
-                :key="item.id"
-                :label="item.name"
-                :value="item.id"
-              />
-            </el-select>
-          </div>
+    <!-- 主体区域 -->
+    <div class="main-content">
+      <!-- 左侧画布 -->
+      <div class="canvas-area" ref="videoContainerRef">
+        <VideoPlayer ref="videoPlayerRef" url="" protocol="hls" :enable-dual-protocol="false" />
+        <canvas ref="annotationCanvasRef" class="annotation-canvas" @mousedown="startDraw" @mousemove="draw"
+          @mouseup="endDraw" @mouseleave="endDraw"></canvas>
+      </div>
 
-          <div class="panel-section">
-            <div class="button-row">
-              <el-button type="primary" size="small" @click="handleQuery" class="query-btn">查询</el-button>
-            </div>
+      <!-- 右侧配置面板 -->
+      <div class="config-panel">
+        <!-- 选择标签 -->
+        <div class="panel-section">
+          <div class="section-header">
+            <h4 class="section-title">选择标签</h4>
+            <el-button link size="small" class="create-tag-btn" @click="openTagManage">创建标签</el-button>
           </div>
-
-          <div class="panel-section">
-            <h4 class="section-title">操作</h4>
-            <div class="button-group-vertical">
-              <el-button type="primary" size="small" @click="handleCaptureFrame" class="action-btn">
-                <el-icon><Camera /></el-icon>抽帧
-              </el-button>
-              <el-button type="primary" size="small" @click="handleImportBg" class="action-btn">
-                <el-icon><Upload /></el-icon>导入
-              </el-button>
-              <el-button type="danger" size="small" @click="handleDelete" class="action-btn">
-                <el-icon><Delete /></el-icon>删除
-              </el-button>
-              <el-button type="primary" size="small" @click="handleUpdateBg" class="action-btn">
-                <el-icon><Refresh /></el-icon>更新底图
-              </el-button>
-            </div>
+          <div class="tag-type-selector">
+            <el-radio-group v-model="selectedTagType">
+              <el-radio value="monitoring">监测区域</el-radio>
+              <el-radio value="forbidden">非监测区</el-radio>
+            </el-radio-group>
           </div>
         </div>
-      </template>
 
-      <!-- Middle Column: Video + Canvas -->
-      <template #middle>
-        <div class="video-container" ref="videoContainerRef">
-          <VideoPlayer
-            ref="videoPlayerRef"
-            url=""
-            protocol="hls"
-            :enable-dual-protocol="false"
-          />
-          <canvas
-            ref="annotationCanvasRef"
-            class="annotation-canvas"
-            @mousedown="startDraw"
-            @mousemove="draw"
-            @mouseup="endDraw"
-            @mouseleave="endDraw"
-          ></canvas>
-        </div>
-      </template>
-
-      <!-- Right Column: Config Panel -->
-      <template #right>
-        <div class="right-panel">
-          <el-tabs v-model="activeTab" class="config-tabs">
-            <!-- Tab1: 选择标签 -->
-            <el-tab-pane label="选择标签" name="tags">
-              <div class="tab-content">
-                <div class="tag-section">
-                  <div class="section-header">
-                    <h4 class="section-title">选择标签</h4>
-                    <el-button link size="small" style="color: #00E5FF; background: rgba(0, 229, 255, 0.15); border: 1px solid rgba(0, 229, 255, 0.4); border-radius: 4px; padding: 2px 8px; font-weight: 600; text-shadow: none;" @click="openTagManage" class="create-tag-btn">创建标签</el-button>
-                  </div>
-                  <div class="tag-options">
-                    <el-radio-group v-model="selectedTagType" size="small">
-                      <el-radio-button value="monitoring">监测区域</el-radio-button>
-                      <el-radio-button value="forbidden">非监测区域</el-radio-button>
-                    </el-radio-group>
-                  </div>
-                </div>
-
-                <div class="preset-section">
-                  <h4 class="section-title">预置点信息</h4>
-                  <el-form :model="presetForm" label-width="80px" size="small">
-                    <el-form-item label="名称">
-                      <el-input v-model="presetForm.name" placeholder="请输入名称" />
-                    </el-form-item>
-                    <el-form-item label="编号">
-                      <el-select v-model="presetForm.code" placeholder="请选择" style="width: 100%">
-                        <el-option label="1" value="1" />
-                        <el-option label="2" value="2" />
-                      </el-select>
-                    </el-form-item>
-                    <el-form-item label="监控时间">
-                      <div class="time-range">
-                        <el-time-picker
-                          v-model="presetForm.timeRange.start"
-                          format="HH:mm:ss"
-                          value-format="HH:mm:ss"
-                          placeholder="开始时间"
-                          style="width: 100px"
-                        />
-                        <span class="time-separator">-</span>
-                        <el-time-picker
-                          v-model="presetForm.timeRange.end"
-                          format="HH:mm:ss"
-                          value-format="HH:mm:ss"
-                          placeholder="结束时间"
-                          style="width: 100px"
-                        />
-                        <el-button type="primary" size="small" link @click="addTimeRange" class="add-time-btn">
-                          <el-icon><Plus /></el-icon>
-                        </el-button>
-                      </div>
-                    </el-form-item>
-                  </el-form>
-                </div>
-
-                <div class="auto-preset-section">
-                  <h4 class="section-title">自动获取预置点</h4>
-                  <div class="preset-controls">
-                    <el-button type="primary" size="small" @click="handleGetPreset" class="query-preset-btn">查询</el-button>
-                    <div class="preset-inputs">
-                      <el-input-number v-model="presetForm.p" :min="0" :max="360" size="small" controls-position="right" />
-                      <el-input-number v-model="presetForm.t" :min="0" :max="90" size="small" controls-position="right" />
-                      <el-input-number v-model="presetForm.z" :min="1" :max="20" size="small" controls-position="right" />
-                    </div>
-                  </div>
-                </div>
-
-                <div class="annotation-list-section">
-                  <h4 class="section-title">标注列表</h4>
-                  <el-table :data="filteredAnnotations" border size="small" max-height="200">
-                    <el-table-column prop="type" label="标签" width="80">
-                      <template #default="{ row }">
-                        <el-tag :type="row.type === 'monitoring' ? 'success' : 'danger'" size="small">
-                          {{ row.type === 'monitoring' ? '监测' : '非监测' }}
-                        </el-tag>
-                      </template>
-                    </el-table-column>
-                    <el-table-column prop="createTime" label="时间" />
-                    <el-table-column label="编辑" width="80">
-                      <template #default="{ row }">
-                        <el-button link size="small" style="color: #00E5FF; background: rgba(0, 229, 255, 0.15); border: 1px solid rgba(0, 229, 255, 0.4); border-radius: 4px; padding: 2px 8px; font-weight: 600; text-shadow: none;" @click="editAnnotation(row)">编辑</el-button>
-                      </template>
-                    </el-table-column>
-                  </el-table>
-                </div>
-
-                <div class="save-section">
-                  <el-button type="primary" size="small" @click="saveAnnotation" class="save-btn">保存标注信息</el-button>
-                </div>
+        <!-- 预置点信息 -->
+        <div class="panel-section">
+          <h4 class="section-title">预置点信息</h4>
+          <el-form :model="presetForm" label-width="90px" size="small" class="compact-form">
+            <el-form-item label="预置点名称：">
+              <el-input v-model="presetForm.name" placeholder="请输入名称" />
+            </el-form-item>
+            <el-form-item label="预置点编号：">
+              <el-select v-model="presetForm.code" placeholder="请选择" style="width: 100%">
+                <el-option label="1" value="1" />
+                <el-option label="2" value="2" />
+                <el-option label="3" value="3" />
+                <el-option label="4" value="4" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="监控时间段：">
+              <div class="time-range">
+                <el-time-picker v-model="presetForm.timeRange.start" format="HH:mm:ss" value-format="HH:mm:ss"
+                  placeholder="开始时间" style="width: 110px" />
+                <span class="time-separator">-</span>
+                <el-time-picker v-model="presetForm.timeRange.end" format="HH:mm:ss" value-format="HH:mm:ss"
+                  placeholder="结束时间" style="width: 110px" />
+                <el-button type="primary" size="small" link class="add-time-btn" @click="addTimeRange">
+                  <el-icon>
+                    <Plus />
+                  </el-icon>
+                </el-button>
               </div>
-            </el-tab-pane>
-          </el-tabs>
+            </el-form-item>
+          </el-form>
         </div>
-      </template>
-    </ThreeColumnLayout>
+
+        <!-- 自动获取预置点 -->
+        <div class="panel-section">
+          <h4 class="section-title">自动获取预置点</h4>
+          <div class="preset-controls">
+            <el-button type="primary" size="small" class="query-preset-btn" @click="handleGetPreset">查询</el-button>
+            <div class="preset-inputs">
+              <span class="preset-label">P:</span>
+              <el-input-number v-model="presetForm.p" :min="0" :max="360" size="small" controls-position="right" />
+              <span class="preset-label">T:</span>
+              <el-input-number v-model="presetForm.t" :min="0" :max="90" size="small" controls-position="right" />
+              <span class="preset-label">Z:</span>
+              <el-input-number v-model="presetForm.z" :min="1" :max="20" size="small" controls-position="right" />
+            </div>
+          </div>
+        </div>
+
+        <!-- 标注列表 -->
+        <div class="panel-section">
+          <h4 class="section-title">标注列表</h4>
+          <el-table :data="filteredAnnotations" border size="small" max-height="180" class="annotation-table">
+            <el-table-column prop="type" label="标签" width="80" align="center">
+              <template #default="{ row }">
+                <el-tag :type="row.type === 'monitoring' ? 'success' : 'danger'" size="small">
+                  {{ row.type === 'monitoring' ? '监测' : '非监测' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="created_at" label="时间" min-width="120" show-overflow-tooltip />
+            <el-table-column label="编辑" width="70" align="center">
+              <template #default="{ row }">
+                <el-button link size="small" class="action-edit" @click="editAnnotation(row)">编辑</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+
+        <!-- 保存按钮 -->
+        <div class="save-section">
+          <el-button type="primary" size="small" class="save-btn" @click="saveAnnotation">保存标注信息</el-button>
+        </div>
+      </div>
+    </div>
 
     <!-- 标签管理弹窗 -->
     <el-dialog v-model="tagDialogVisible" title="标签管理" width="400px" class="tag-dialog">
@@ -196,41 +157,25 @@
 
 <script setup lang="ts">
 import { ref, computed, reactive, onMounted, watch } from 'vue'
-import { Camera, Upload, Delete, Refresh, Plus } from '@element-plus/icons-vue'
+import { Camera, Upload, Delete, Refresh, Plus, Search } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import ThreeColumnLayout from '@/components/layout/ThreeColumnLayout.vue'
 import VideoPlayer from '@/components/video/VideoPlayer.vue'
-import { annotations, presets, tags } from '@/mock/deployment/annotation'
-import { deployments } from '@/mock/deployment/data'
+import { getDevices } from '@/api/devices'
+import { getDeployments } from '@/api/deployments'
+import { getAnnotations, createAnnotation } from '@/api/annotations'
 
 interface Annotation {
   id: number
   deploymentId: number
-  deviceId: string
+  deviceId: number
   type: string
   polygon: number[][]
   createTime: string
 }
 
-interface Preset {
-  id: number
-  deviceId: string
-  name: string
-  p: number
-  t: number
-  z: number
-  timeRange: { start: string; end: string }
-}
-
-interface Tag {
-  id: number
-  name: string
-  type: string
-}
 
 const selectedDeployment = ref<number | null>(null)
-const selectedDevice = ref<string | null>(null)
-const activeTab = ref('tags')
+const selectedDevice = ref<number | null>(null)
 const selectedTagType = ref('monitoring')
 const tagDialogVisible = ref(false)
 
@@ -241,13 +186,58 @@ const annotationCanvasRef = ref<HTMLCanvasElement | null>(null)
 const isDrawing = ref(false)
 const currentPolygon = ref<number[][]>([])
 
-// Mock devices - in real app would come from API
-const devices = ref([
-  { id: 'dev-1', name: '摄像头-01' },
-  { id: 'dev-2', name: '摄像头-02' },
-  { id: 'dev-3', name: '摄像头-03' },
-  { id: 'dev-4', name: '摄像头-04' }
+// 设备数据
+const allDevices = ref<any[]>([])
+
+// 布控数据
+const deployments = ref<any[]>([])
+
+// 标注数据
+const annotations = ref<any[]>([])
+
+// 标签数据（本地维护，后端无API）
+const tags = ref<any[]>([
+  { id: 1, name: '重点区域', type: 'number' },
+  { id: 2, name: '禁行区域', type: 'number' },
+  { id: 3, name: '施工区域', type: 'number' },
+  { id: 4, name: '分流区域', type: 'number' }
 ])
+
+// 获取设备列表
+const fetchDevices = async () => {
+  try {
+    const res: any = await getDevices({ page: 1, page_size: 100 })
+    allDevices.value = res.items || []
+  } catch {
+    ElMessage.error('获取设备列表失败')
+  }
+}
+
+// 获取布控列表
+const fetchDeployments = async () => {
+  try {
+    const res: any = await getDeployments({ page: 1, page_size: 100 })
+    deployments.value = res.items || []
+  } catch {
+    ElMessage.error('获取布控列表失败')
+  }
+}
+
+// 获取标注列表
+const fetchAnnotations = async () => {
+  try {
+    const res: any = await getAnnotations({ page: 1, page_size: 100 })
+    annotations.value = res.items || []
+  } catch {
+    ElMessage.error('获取标注列表失败')
+  }
+}
+
+// 根据选择的布控过滤可用设备（后端暂无布控-设备关联，显示全部设备）
+const availableDevices = computed(() => {
+  if (!selectedDeployment.value) return []
+  return allDevices.value
+})
 
 const tagForm = reactive({
   name: '',
@@ -267,15 +257,11 @@ const presetForm = reactive({
 })
 
 const filteredAnnotations = computed(() => {
-  return annotations.filter(a => {
-    const deploymentMatch = !selectedDeployment.value || a.deploymentId === selectedDeployment.value
-    const deviceMatch = !selectedDevice.value || a.deviceId === selectedDevice.value
+  return annotations.value.filter((a: any) => {
+    const deploymentMatch = !selectedDeployment.value || a.deployment_id === selectedDeployment.value
+    const deviceMatch = !selectedDevice.value || a.device_id === selectedDevice.value
     return deploymentMatch && deviceMatch
   })
-})
-
-const filteredPresets = computed(() => {
-  return presets.filter(p => !selectedDevice.value || p.deviceId === selectedDevice.value)
 })
 
 const handleCaptureFrame = () => {
@@ -292,11 +278,6 @@ const handleQuery = () => {
     return
   }
   ElMessage.success('查询成功')
-}
-
-const handleReset = () => {
-  selectedDeployment.value = null
-  selectedDevice.value = null
 }
 
 const handleDelete = () => {
@@ -337,7 +318,6 @@ const renderCanvas = () => {
 
   ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-  // Draw current polygon
   if (currentPolygon.value.length > 1) {
     ctx.beginPath()
     ctx.moveTo(currentPolygon.value[0][0], currentPolygon.value[0][1])
@@ -363,7 +343,7 @@ const clearCanvas = () => {
   }
 }
 
-const saveAnnotation = () => {
+const saveAnnotation = async () => {
   if (currentPolygon.value.length < 3) {
     ElMessage.warning('请绘制至少3个点形成区域')
     return
@@ -372,22 +352,20 @@ const saveAnnotation = () => {
     ElMessage.warning('请选择布控任务和设备')
     return
   }
-  annotations.push({
-    id: Date.now(),
-    deploymentId: selectedDeployment.value,
-    deviceId: selectedDevice.value,
-    type: selectedTagType.value,
-    polygon: [...currentPolygon.value],
-    createTime: new Date().toLocaleString()
-  })
-  clearCanvas()
-  ElMessage.success('标注保存成功')
-}
-
-const deleteAnnotation = (row: Annotation) => {
-  const idx = annotations.findIndex(a => a.id === row.id)
-  if (idx !== -1) annotations.splice(idx, 1)
-  ElMessage.success('删除成功')
+  try {
+    await createAnnotation({
+      deployment_id: selectedDeployment.value,
+      device_id: selectedDevice.value,
+      type: selectedTagType.value,
+      polygon_json: [...currentPolygon.value],
+      name: presetForm.name || null
+    })
+    clearCanvas()
+    ElMessage.success('标注保存成功')
+    fetchAnnotations()
+  } catch (error: any) {
+    ElMessage.error(error.message || '保存失败')
+  }
 }
 
 const handleAddTag = () => {
@@ -399,7 +377,7 @@ const handleAddTag = () => {
     ElMessage.warning('请输入标签类型')
     return
   }
-  tags.push({
+  tags.value.push({
     id: Date.now(),
     name: tagForm.name,
     type: tagForm.typeValue
@@ -407,12 +385,6 @@ const handleAddTag = () => {
   tagForm.name = ''
   tagForm.typeValue = ''
   ElMessage.success('标签添加成功')
-}
-
-const deleteTag = (row: Tag) => {
-  const idx = tags.findIndex(t => t.id === row.id)
-  if (idx !== -1) tags.splice(idx, 1)
-  ElMessage.success('删除成功')
 }
 
 const handleGetPreset = () => {
@@ -427,31 +399,8 @@ const openTagManage = () => {
   tagDialogVisible.value = true
 }
 
-const editAnnotation = (row: Annotation) => {
+const editAnnotation = (_row: Annotation) => {
   ElMessage.info('编辑标注')
-}
-
-const handleSavePreset = () => {
-  if (!selectedDevice.value) {
-    ElMessage.warning('请先选择设备')
-    return
-  }
-  presets.push({
-    id: Date.now(),
-    deviceId: selectedDevice.value,
-    name: `预置点${presets.length + 1}`,
-    p: presetForm.p,
-    t: presetForm.t,
-    z: presetForm.z,
-    timeRange: { ...presetForm.timeRange }
-  })
-  ElMessage.success('预置点保存成功')
-}
-
-const deletePreset = (row: Preset) => {
-  const idx = presets.findIndex(p => p.id === row.id)
-  if (idx !== -1) presets.splice(idx, 1)
-  ElMessage.success('删除成功')
 }
 
 onMounted(() => {
@@ -459,6 +408,9 @@ onMounted(() => {
     annotationCanvasRef.value.width = videoContainerRef.value.clientWidth
     annotationCanvasRef.value.height = videoContainerRef.value.clientHeight
   }
+  fetchDevices()
+  fetchDeployments()
+  fetchAnnotations()
 })
 
 watch([selectedDeployment, selectedDevice], () => {
@@ -473,93 +425,168 @@ watch([selectedDeployment, selectedDevice], () => {
   background: #020B1F;
   padding: 15px;
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-.left-panel {
-  padding: 16px;
-  height: 100%;
-  overflow-y: auto;
+/* 顶部工具栏 */
+.top-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 16px;
+  background: linear-gradient(145deg, rgba(0, 40, 70, 0.6) 0%, rgba(0, 20, 40, 0.8) 100%);
+  border: 1px solid rgba(0, 229, 255, 0.15);
+  border-radius: 8px;
+  backdrop-filter: blur(16px) saturate(160%);
 }
 
-.panel-section {
-  margin-bottom: 20px;
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
-.section-title {
+.selector-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.selector-label {
   font-size: 13px;
-  font-weight: 500;
-  color: rgba(0, 229, 255, 0.9);
-  margin-bottom: 12px;
-  padding-left: 8px;
-  border-left: 3px solid #00E5FF;
-}
-
-.button-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.button-group-vertical {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.button-row {
-  display: flex;
-  gap: 8px;
+  color: rgba(180, 210, 235, 0.9);
+  white-space: nowrap;
 }
 
 .required-mark {
   color: #FF006E;
-  margin-right: 4px;
 }
 
 .query-btn {
-  flex: 1;
   background: #00E5FF;
   border-color: #00E5FF;
   color: #000;
 }
 
-.reset-btn {
-  flex: 1;
+.query-btn:hover {
+  background: #00B4D8;
+  border-color: #00B4D8;
+}
+
+.toolbar-right {
+  display: flex;
+  gap: 8px;
+}
+
+.action-btn {
   background: rgba(0, 30, 60, 0.6);
   border-color: rgba(0, 229, 255, 0.3);
   color: #00E5FF;
 }
 
-.tag-section,
-.preset-section,
-.auto-preset-section,
-.annotation-list-section {
-  margin-bottom: 20px;
+.action-btn:hover {
+  background: rgba(0, 229, 255, 0.2);
+  border-color: #00E5FF;
+}
+
+.action-btn.danger {
+  border-color: rgba(255, 77, 106, 0.4);
+  color: #FF4D6D;
+}
+
+.action-btn.danger:hover {
+  background: rgba(255, 0, 110, 0.2);
+  border-color: #FF006E;
+  color: #FF006E;
+}
+
+/* 主体区域 */
+.main-content {
+  display: flex;
+  flex: 1;
+  gap: 12px;
+  min-height: 0;
+}
+
+/* 左侧画布 */
+.canvas-area {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 229, 255, 0.2);
+}
+
+.annotation-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: auto;
+  cursor: crosshair;
+}
+
+/* 右侧配置面板 */
+.config-panel {
+  width: 340px;
+  flex-shrink: 0;
+  padding: 16px;
+  overflow-y: auto;
+  background: linear-gradient(145deg, rgba(0, 50, 80, 0.5) 0%, rgba(0, 25, 50, 0.75) 100%);
+  border: 1px solid rgba(0, 229, 255, 0.18);
+  border-radius: 8px;
+  backdrop-filter: blur(18px) saturate(170%);
+}
+
+.panel-section {
+  margin-bottom: 16px;
 }
 
 .section-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
-.section-header .section-title {
-  margin-bottom: 0;
+.section-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(0, 229, 255, 0.9);
+  margin: 0;
+  padding-left: 8px;
+  border-left: 3px solid #00E5FF;
 }
 
 .create-tag-btn {
   color: #00E5FF;
 }
 
-.tag-options {
-  margin-top: 12px;
+.tag-type-selector {
+  margin-top: 8px;
+}
+
+.compact-form :deep(.el-form-item) {
+  margin-bottom: 10px;
+}
+
+.compact-form :deep(.el-form-item__label) {
+  color: rgba(180, 210, 235, 0.8);
+  font-size: 12px;
 }
 
 .time-range {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .time-separator {
@@ -573,8 +600,8 @@ watch([selectedDeployment, selectedDevice], () => {
 .preset-controls {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-top: 12px;
+  gap: 10px;
+  margin-top: 8px;
 }
 
 .query-preset-btn {
@@ -583,22 +610,56 @@ watch([selectedDeployment, selectedDevice], () => {
   color: #000;
 }
 
+.query-preset-btn:hover {
+  background: #00B4D8;
+  border-color: #00B4D8;
+}
+
 .preset-inputs {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 6px;
+}
+
+.preset-label {
+  font-size: 12px;
+  color: rgba(180, 210, 235, 0.7);
 }
 
 .save-section {
-  margin-top: 20px;
+  margin-top: 12px;
 }
 
-.save-section .save-btn {
+.save-btn {
   width: 100%;
   background: #00E5FF;
   border-color: #00E5FF;
   color: #000;
 }
 
+.save-btn:hover {
+  background: #00B4D8;
+  border-color: #00B4D8;
+}
+
+/* 操作按钮 - 编辑（青色） */
+.action-edit {
+  color: #00E5FF;
+  background: rgba(0, 229, 255, 0.15);
+  border: 1px solid rgba(0, 229, 255, 0.4);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-weight: 600;
+  text-shadow: none;
+}
+
+.action-edit:hover {
+  color: #00FF88;
+  background: rgba(0, 229, 255, 0.25);
+  border-color: #00E5FF;
+}
+
+/* 弹窗 */
 .tag-dialog :deep(.el-dialog) {
   --el-dialog-bg-color: rgba(0, 20, 50, 0.95);
   border: 1px solid rgba(0, 229, 255, 0.3);
@@ -634,169 +695,7 @@ watch([selectedDeployment, selectedDevice], () => {
   color: #000;
 }
 
-.action-btn {
-  width: 100%;
-  background: rgba(0, 30, 60, 0.6);
-  border-color: rgba(0, 229, 255, 0.3);
-  color: #00E5FF;
-}
-
-.action-btn:hover {
-  background: rgba(0, 229, 255, 0.2);
-  border-color: #00E5FF;
-}
-
-.video-container {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  background: #000;
-  border-radius: 4px;
-  overflow: hidden;
-  border: 1px solid rgba(0, 229, 255, 0.2);
-}
-
-.annotation-canvas {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: auto;
-  cursor: crosshair;
-}
-
-.right-panel {
-  height: 100%;
-  padding: 16px;
-  overflow-y: auto;
-}
-
-.config-tabs {
-  height: 100%;
-}
-
-.config-tabs :deep(.el-tabs__header) {
-  margin-bottom: 0;
-}
-
-.config-tabs :deep(.el-tabs__nav-wrap::after) {
-  background: rgba(0, 229, 255, 0.2);
-}
-
-.config-tabs :deep(.el-tabs__item) {
-  color: rgba(255, 255, 255, 0.6);
-}
-
-.config-tabs :deep(.el-tabs__item.is-active) {
-  color: #00E5FF;
-}
-
-.config-tabs :deep(.el-tabs__active-bar) {
-  background: #00E5FF;
-}
-
-.config-tabs :deep(.el-tabs__content) {
-  height: calc(100% - 40px);
-  overflow-y: auto;
-}
-
-.tab-content {
-  padding: 12px 0;
-}
-
-.type-toggle {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.toggle-label {
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.7);
-}
-
-.canvas-controls {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-
-.clear-btn {
-  background: rgba(0, 30, 60, 0.6);
-  border-color: rgba(255, 77, 106, 0.5);
-  color: #FF006E;
-}
-
-.clear-btn:hover {
-  background: rgba(255, 77, 106, 0.2);
-  border-color: #FF006E;
-}
-
-.save-btn {
-  background: rgba(0, 229, 255, 0.2);
-  border-color: #00E5FF;
-  color: #00E5FF;
-}
-
-.save-btn:hover {
-  background: rgba(0, 229, 255, 0.3);
-}
-
-.annotation-list,
-.tag-list,
-.preset-list {
-  margin-top: 16px;
-}
-
-.list-title {
-  font-size: 13px;
-  font-weight: 500;
-  color: rgba(0, 229, 255, 0.9);
-  margin-bottom: 8px;
-}
-
-.tag-form,
-.preset-form {
-  padding: 12px;
-  background: rgba(0, 30, 60, 0.3);
-  border-radius: 4px;
-  border: 1px solid rgba(0, 229, 255, 0.1);
-}
-
-.add-tag-btn,
-.get-preset-btn {
-  background: rgba(0, 229, 255, 0.2);
-  border-color: rgba(0, 229, 255, 0.3);
-  color: #00E5FF;
-}
-
-.add-tag-btn:hover,
-.get-preset-btn:hover {
-  background: rgba(0, 229, 255, 0.3);
-}
-
-.save-preset-btn {
-  background: #00E5FF;
-  border-color: #00E5FF;
-  color: #000;
-}
-
-.save-preset-btn:hover {
-  background: #00b8d4;
-}
-
-:deep(.el-table) {
-  --el-table-bg-color: rgba(0, 20, 50, 0.4);
-  --el-table-tr-bg-color: rgba(0, 30, 60, 0.4);
-  --el-table-header-bg-color: rgba(0, 40, 80, 0.6);
-  --el-table-row-hover-bg-color: rgba(0, 60, 100, 0.4);
-  --el-table-border-color: rgba(0, 229, 255, 0.2);
-  --el-table-text-color: rgba(180, 210, 235, 0.9);
-  --el-table-header-text-color: rgba(180, 210, 235, 0.9);
-}
-
+/* Element Plus 覆盖 */
 :deep(.el-input__wrapper) {
   background: rgba(0, 30, 60, 0.6);
   border: 1px solid rgba(0, 229, 255, 0.3);
@@ -811,15 +710,30 @@ watch([selectedDeployment, selectedDevice], () => {
   background: rgba(0, 30, 60, 0.6);
 }
 
-:deep(.el-radio-button__inner) {
-  background: rgba(0, 30, 60, 0.6);
-  border-color: rgba(0, 229, 255, 0.3);
+:deep(.el-radio__input.is-checked + .el-radio__label) {
   color: #00E5FF;
 }
 
-:deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
+:deep(.el-radio__input.is-checked .el-radio__inner) {
   background: #00E5FF;
   border-color: #00E5FF;
-  color: #000;
+}
+
+:deep(.el-radio__label) {
+  color: rgba(180, 210, 235, 0.8);
+}
+
+:deep(.el-table) {
+  --el-table-bg-color: rgba(0, 20, 50, 0.4);
+  --el-table-tr-bg-color: rgba(0, 30, 60, 0.4);
+  --el-table-header-bg-color: rgba(0, 40, 80, 0.6);
+  --el-table-row-hover-bg-color: rgba(0, 60, 100, 0.4);
+  --el-table-border-color: rgba(0, 229, 255, 0.2);
+  --el-table-text-color: rgba(180, 210, 235, 0.9);
+  --el-table-header-text-color: rgba(180, 210, 235, 0.9);
+}
+
+.annotation-table :deep(.el-table__cell) {
+  padding: 4px 0;
 }
 </style>

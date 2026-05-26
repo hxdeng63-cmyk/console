@@ -95,7 +95,11 @@
               <el-option label="全部" value="all" />
             </el-select>
           </div>
-          <AlarmPanel :alarms="alarmList" @alarm-click="handleAlarmClick" />
+          <div v-if="alarmLoading" class="alarm-loading">
+            <el-icon class="is-loading"><Loading /></el-icon>
+            <span>加载中...</span>
+          </div>
+          <AlarmPanel v-else :alarms="alarmList" @alarm-click="handleAlarmClick" />
         </div>
       </template>
     </ThreeColumnLayout>
@@ -103,18 +107,26 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { Search } from '@element-plus/icons-vue'
+import { ref, onMounted } from 'vue'
+import { Search, Loading } from '@element-plus/icons-vue'
 import ThreeColumnLayout from '@/components/layout/ThreeColumnLayout.vue'
 import DeviceTree from '@/components/device-tree/DeviceTree.vue'
 import VideoPlayer from '@/components/video/VideoPlayer.vue'
 import AlarmPanel from '@/components/monitor/AlarmPanel.vue'
-import { deviceTreeData, alarmList } from '@/mock/monitor/data'
-import { videoFiles, videoUrl } from '@/mock/monitor/fileAnalysis'
+import { getDevices } from '@/api/devices'
+import { getList as getWarningEvents } from '@/api/warning-events'
+import request from '@/api/index.js'
 import type { DeviceNode } from '@/components/device-tree/useDeviceTree'
 
+interface VideoFile {
+  id: number
+  fileName: string
+  startTime: string
+  duration: number
+}
+
 const selectedDevice = ref<DeviceNode | null>(null)
-const currentFile = ref<typeof videoFiles[0] | null>(null)
+const currentFile = ref<VideoFile | null>(null)
 const playProgress = ref(0)
 const isPlaying = ref(false)
 const searchText = ref('')
@@ -123,18 +135,113 @@ const selectedSection = ref('G213')
 const selectedAlarmType = ref('all')
 const selectedAlarmLevel = ref('violation')
 
-const videoFileList = computed(() => {
-  return videoFiles
+// 设备树数据（从API获取）
+const deviceTreeData = ref<DeviceNode[]>([])
+
+// 报警列表（从API获取）
+const alarmList = ref<any[]>([])
+const alarmLoading = ref(false)
+
+const fetchAlarms = async () => {
+  alarmLoading.value = true
+  try {
+    const res: any = await getWarningEvents({ page: 1, page_size: 50 })
+    const items = res.items || []
+    alarmList.value = items.map((item: any) => ({
+      id: item.id,
+      time: item.time || item.captureTime?.split(' ')[1] || '00:00:00',
+      type: item.type || '未知',
+      device: item.device || '',
+      location: item.location || '',
+      level: item.level || 'info',
+      handled: item.handled ?? false,
+      isCompliant: item.isCompliant ?? true,
+      imageUrl: item.imageUrl || '',
+      captureTime: item.captureTime || ''
+    }))
+  } catch (error) {
+    console.error('Failed to load alarms:', error)
+    alarmList.value = []
+  } finally {
+    alarmLoading.value = false
+  }
+}
+
+// 获取设备列表并构建树
+const fetchDeviceTree = async () => {
+  try {
+    const res: any = await getDevices({ page: 1, page_size: 100 })
+    const devices = res.items || []
+    // 构建设备树结构
+    const grouped: Record<string, Record<string, any[]>> = {}
+    devices.forEach((d: any) => {
+      const org = d.org_name || d.org || '未知组织'
+      const region = d.region_name || d.region || '未知区域'
+      if (!grouped[org]) grouped[org] = {}
+      if (!grouped[org][region]) grouped[org][region] = []
+      grouped[org][region].push({
+        id: `device-${d.id}`,
+        name: d.name,
+        type: 'camera' as const,
+        online: d.status === 'active',
+        ip: ''
+      })
+    })
+
+    deviceTreeData.value = Object.entries(grouped).map(([orgName, regions]) => ({
+      id: `org-${orgName}`,
+      name: orgName,
+      type: 'org' as const,
+      online: true,
+      children: Object.entries(regions).map(([regionName, cameras]) => ({
+        id: `group-${regionName}`,
+        name: regionName,
+        type: 'group' as const,
+        online: true,
+        children: cameras
+      }))
+    }))
+  } catch {
+    console.error('获取设备列表失败')
+  }
+}
+
+onMounted(() => {
+  fetchDeviceTree()
+  fetchAlarms()
 })
+
+const videoFileList = ref<VideoFile[]>([])
+
+const fetchVideoFiles = async (deviceId: number) => {
+  try {
+    const res: any = await request.get('/file-records', { params: { device_id: deviceId, page: 1, page_size: 50 } })
+    const items = res.items || []
+    videoFileList.value = items.map((item: any) => ({
+      id: item.id,
+      fileName: item.file_name,
+      startTime: item.created_at ? new Date(item.created_at).toLocaleString() : '-',
+      duration: item.duration_seconds || 0
+    }))
+  } catch (error) {
+    console.error('Failed to fetch video files:', error)
+    videoFileList.value = []
+  }
+}
 
 function handleDeviceClick(node: DeviceNode) {
   if (node.type === 'camera') {
     selectedDevice.value = node
     currentFile.value = null
+    const rawId = node.id.replace('device-', '')
+    const deviceId = parseInt(rawId, 10)
+    if (!isNaN(deviceId)) {
+      fetchVideoFiles(deviceId)
+    }
   }
 }
 
-function handleFileClick(row: typeof videoFiles[0]) {
+function handleFileClick(row: VideoFile) {
   currentFile.value = row
   playProgress.value = 0
   isPlaying.value = false
@@ -402,5 +509,15 @@ function handleAlarmClick(alarm: any) {
     box-shadow: 0 0 25px rgba(0, 229, 255, 0.5), inset 0 0 25px rgba(0, 229, 255, 0.2);
     transform: scale(1.05);
   }
+}
+
+.alarm-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px 0;
+  color: rgba(0, 229, 255, 0.6);
+  font-size: 13px;
 }
 </style>

@@ -19,8 +19,8 @@
           <el-col :span="8">
             <el-form-item label="执行策略">
               <el-radio-group v-model="form.strategy">
-                <el-radio label="immediate">立即执行</el-radio>
-                <el-radio label="scheduled">定时执行</el-radio>
+                <el-radio value="immediate">立即执行</el-radio>
+                <el-radio value="scheduled">定时执行</el-radio>
               </el-radio-group>
             </el-form-item>
           </el-col>
@@ -117,8 +117,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { cleanRecordList } from '@/mock'
+import { ref, computed, onMounted } from 'vue'
+import { getCleanRecords } from '@/api/cleanRecords'
+
+interface CleanRecord {
+  type: string
+  cutoffTime: string
+  status: string
+  progress: number
+}
 
 const form = ref({
   strategy: 'scheduled',
@@ -129,13 +136,33 @@ const form = ref({
   videoDays: 60,
 })
 
-const cleanRecords = ref(cleanRecordList)
+const cleanRecords = ref<CleanRecord[]>([])
 const currentPage = ref(1)
 const pageSize = ref(10)
 
 const pagedData = computed(() => {
   const start = (currentPage.value - 1) * pageSize.value
   return cleanRecords.value.slice(start, start + pageSize.value)
+})
+
+const fetchCleanRecords = async () => {
+  try {
+    const res: any = await getCleanRecords({ page: 1, page_size: 100 })
+    const items = res.items || []
+    cleanRecords.value = items.map((item: any) => ({
+      type: item.type || item.recordType || item.record_type || '-',
+      cutoffTime: item.cutoffTime || item.cutoff_time || item.createdAt || item.created_at || '-',
+      status: item.status || (item.progress === 100 ? '成功' : item.progress > 0 ? '执行中' : '待执行'),
+      progress: Number(item.progress ?? item.progressPercent ?? item.progress_percent ?? 0)
+    }))
+  } catch (error) {
+    console.error('Failed to load clean records:', error)
+    cleanRecords.value = []
+  }
+}
+
+onMounted(() => {
+  fetchCleanRecords()
 })
 
 const handleSubmit = () => {

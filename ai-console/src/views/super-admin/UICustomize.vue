@@ -63,27 +63,27 @@
         <el-form-item label="展示模块" prop="modules">
           <div class="modules-grid">
             <el-checkbox-group v-model="form.modules">
-              <el-checkbox label="实时监控flv/vlc">实时监控flv/vlc</el-checkbox>
-              <el-checkbox label="实时监控图片流">实时监控图片流</el-checkbox>
-              <el-checkbox label="实时监控hls">实时监控hls</el-checkbox>
-              <el-checkbox label="实时监控HK1.5+">实时监控HK1.5+</el-checkbox>
-              <el-checkbox label="实时监控HK1.3">实时监控HK1.3</el-checkbox>
-              <el-checkbox label="实时监控交通flv">实时监控交通flv</el-checkbox>
-              <el-checkbox label="实时监控交通vlc">实时监控交通vlc</el-checkbox>
-              <el-checkbox label="事件统计">事件统计</el-checkbox>
-              <el-checkbox label="事件管理">事件管理</el-checkbox>
-              <el-checkbox label="布控管理">布控管理</el-checkbox>
-              <el-checkbox label="人脸管理">人脸管理</el-checkbox>
-              <el-checkbox label="文件分析">文件分析</el-checkbox>
-              <el-checkbox label="控制台">控制台</el-checkbox>
+              <el-checkbox value="实时监控flv/vlc">实时监控flv/vlc</el-checkbox>
+              <el-checkbox value="实时监控图片流">实时监控图片流</el-checkbox>
+              <el-checkbox value="实时监控hls">实时监控hls</el-checkbox>
+              <el-checkbox value="实时监控HK1.5+">实时监控HK1.5+</el-checkbox>
+              <el-checkbox value="实时监控HK1.3">实时监控HK1.3</el-checkbox>
+              <el-checkbox value="实时监控交通flv">实时监控交通flv</el-checkbox>
+              <el-checkbox value="实时监控交通vlc">实时监控交通vlc</el-checkbox>
+              <el-checkbox value="事件统计">事件统计</el-checkbox>
+              <el-checkbox value="事件管理">事件管理</el-checkbox>
+              <el-checkbox value="布控管理">布控管理</el-checkbox>
+              <el-checkbox value="人脸管理">人脸管理</el-checkbox>
+              <el-checkbox value="文件分析">文件分析</el-checkbox>
+              <el-checkbox value="控制台">控制台</el-checkbox>
             </el-checkbox-group>
           </div>
         </el-form-item>
 
         <el-form-item label="主题" prop="theme">
           <el-radio-group v-model="form.theme">
-            <el-radio label="黑色">黑色</el-radio>
-            <el-radio label="白色">白色</el-radio>
+            <el-radio value="黑色">黑色</el-radio>
+            <el-radio value="白色">白色</el-radio>
           </el-radio-group>
         </el-form-item>
       </el-form>
@@ -110,16 +110,7 @@ interface PlatformItem {
   theme: string
 }
 
-const tableData = ref<PlatformItem[]>([
-  {
-    id: '4be29121b554410ab902230931b09d3b',
-    platform: '交通智能分析系统',
-    logo: 'traffic',
-    modules: ['控制台', '事件统计', '事件管理', '文件分析', '实时监控交通flv', '实时监控flv/vlc'],
-    menu: '控制台,时间统计,事件管理,文件分析,实时监控交通flv,实时监控flv/vlc',
-    theme: '黑色'
-  }
-])
+const tableData = ref<PlatformItem[]>([])
 
 const currentPage = ref(1)
 const pageSize = ref(10)

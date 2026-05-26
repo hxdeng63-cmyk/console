@@ -113,11 +113,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { Search, Setting } from '@element-plus/icons-vue'
 import VideoPlayer from '@/components/video/VideoPlayer.vue'
 import DeviceTree from '@/components/device-tree/DeviceTree.vue'
-import { deviceTreeData, alarmList } from '@/mock/monitor/data'
+import { getDevices } from '@/api/devices'
 import type { DeviceNode } from '@/components/device-tree/useDeviceTree'
 
 const searchQuery = ref('')
@@ -126,6 +126,57 @@ const currentProtocol = ref<'flv' | 'hls'>('flv')
 const videoPlayerRef = ref<InstanceType<typeof VideoPlayer> | null>(null)
 const alarmTypeFilter = ref('all')
 const alarmStatusFilter = ref('all')
+const deviceTreeData = ref<DeviceNode[]>([])
+
+onMounted(async () => {
+  try {
+    const data = await getDevices({ page: 1, page_size: 100 })
+    const devices = data.items || []
+    // Transform flat device list to tree: org -> region -> device
+    const orgMap = new Map<number, Map<number, DeviceNode[]>>()
+    for (const device of devices) {
+      const orgId = device.org_id || 0
+      const regionId = device.region_id || 0
+      if (!orgMap.has(orgId)) {
+        orgMap.set(orgId, new Map())
+      }
+      const regionMap = orgMap.get(orgId)!
+      if (!regionMap.has(regionId)) {
+        regionMap.set(regionId, [])
+      }
+      regionMap.get(regionId)!.push({
+        id: String(device.id),
+        name: device.name,
+        type: 'camera',
+        online: device.status === 'active',
+        ip: device.device_code || ''
+      })
+    }
+    const tree: DeviceNode[] = []
+    for (const [orgId, regionMap] of orgMap) {
+      const orgNode: DeviceNode = {
+        id: `org-${orgId}`,
+        name: `Organization ${orgId}`,
+        type: 'org',
+        online: true,
+        children: []
+      }
+      for (const [regionId, children] of regionMap) {
+        orgNode.children!.push({
+          id: `group-${regionId}`,
+          name: `Region ${regionId}`,
+          type: 'group',
+          online: true,
+          children
+        })
+      }
+      tree.push(orgNode)
+    }
+    deviceTreeData.value = tree
+  } catch (error) {
+    console.error('Failed to load devices:', error)
+  }
+})
 
 const currentVideoUrl = computed(() => {
   if (!currentDevice.value) return ''
@@ -138,7 +189,7 @@ const currentBandwidth = computed(() => {
 })
 
 const filteredDeviceTree = computed(() => {
-  if (!searchQuery.value) return deviceTreeData
+  if (!searchQuery.value) return deviceTreeData.value
   const query = searchQuery.value.toLowerCase()
 
   function filterNodes(nodes: any[]): any[] {
@@ -155,20 +206,11 @@ const filteredDeviceTree = computed(() => {
     }, [])
   }
 
-  return filterNodes(deviceTreeData)
+  return filterNodes(deviceTreeData.value)
 })
 
-const filteredAlarms = computed(() => {
-  return alarmList.filter(alarm => {
-    if (alarmTypeFilter.value !== 'all') {
-      if (alarmTypeFilter.value === 'danger' && alarm.level !== 'danger') return false
-    }
-    if (alarmStatusFilter.value !== 'all') {
-      if (alarmStatusFilter.value === 'compliant' && !alarm.isCompliant) return false
-      if (alarmStatusFilter.value === 'non-compliant' && alarm.isCompliant) return false
-    }
-    return true
-  })
+const filteredAlarms = computed<any[]>(() => {
+  return []
 })
 
 function handleDeviceClick(node: DeviceNode) {
