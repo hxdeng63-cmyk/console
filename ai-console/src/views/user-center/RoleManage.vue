@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="role-manage">
     <!-- 操作栏 -->
     <div class="toolbar">
@@ -16,6 +16,14 @@
           <el-option label="是" value="是" />
           <el-option label="否" value="否" />
         </el-select>
+        <el-select v-model="searchForm.companyId" placeholder="请选择公司" style="width: 180px" clearable>
+          <el-option
+            v-for="item in companyOptions"
+            :key="item.id"
+            :label="item.label || item.name"
+            :value="item.id"
+          />
+        </el-select>
         <el-button type="primary" @click="handleSearch">查询</el-button>
       </div>
       <div class="action-area">
@@ -23,7 +31,7 @@
           <el-icon><Plus /></el-icon>新增角色
         </el-button>
       </div>
-</div>
+    </div>
 
     <!-- 表格 -->
     <el-table :data="pagedData" v-loading="loading" border stripe>
@@ -118,7 +126,7 @@
     <el-dialog
       v-model="permissionDialogVisible"
       title="设置权限"
-      width="500px"
+      width="700px"
       :close-on-click-modal="false"
     >
       <el-form :model="permissionForm" label-width="80px">
@@ -126,15 +134,40 @@
           <el-input v-model="permissionForm.name" disabled />
         </el-form-item>
         <el-form-item label="权限配置">
-          <el-tree
-            ref="treeRef"
-            :data="permissionTreeData"
-            :props="{ label: 'label', children: 'children' }"
-            node-key="id"
-            show-checkbox
-            default-expand-all
-            style="background: transparent"
-          />
+          <div class="resource-permission-panel">
+            <el-collapse v-model="activeGroups">
+              <el-collapse-item
+                v-for="group in resourceGroups"
+                :key="group.group"
+                :name="group.group"
+              >
+                <template #title>
+                  <div class="group-header">
+                    <el-checkbox
+                      :model-value="isGroupChecked(group)"
+                      :indeterminate="isGroupIndeterminate(group)"
+                      @click.stop
+                      @change="toggleGroup(group, $event)"
+                    >
+                      {{ group.group }}
+                    </el-checkbox>
+                    <span class="group-count">({{ group.items.filter(i => i.checked).length }}/{{ group.items.length }})</span>
+                  </div>
+                </template>
+                <div class="resource-list">
+                  <el-checkbox
+                    v-for="item in group.items"
+                    :key="item.id"
+                    v-model="item.checked"
+                    class="resource-item"
+                  >
+                    <span class="resource-method" :class="item.method.toLowerCase()">{{ item.method }}</span>
+                    <span class="resource-name">{{ item.name }}</span>
+                  </el-checkbox>
+                </div>
+              </el-collapse-item>
+            </el-collapse>
+          </div>
         </el-form-item>
       </el-form>
 
@@ -150,7 +183,16 @@
 import { ref, computed, reactive, onMounted } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getRoles, createRole, updateRole, deleteRole } from '@/api/roles.js'
+import {
+  getRoles,
+  createRole,
+  updateRole,
+  deleteRole,
+  getRoleUsers,
+  getRoleResources,
+  setRoleResources
+} from '@/api/roles.js'
+import { getOrgTree } from '@/api/orgs.js'
 
 interface RoleItem {
   id: string
@@ -161,17 +203,26 @@ interface RoleItem {
   accounts?: { username: string; name: string; phone: string; org: string }[]
 }
 
-interface PermissionNode {
-  id: string
-  label: string
-  children?: PermissionNode[]
+interface ResourceItem {
+  id: number
+  name: string
+  group: string
+  method: string
+  checked: boolean
+}
+
+interface ResourceGroup {
+  group: string
+  items: ResourceItem[]
+  checkedIds: number[]
 }
 
 const searchForm = reactive({
   id: '',
   name: '',
   definition: '',
-  inUse: ''
+  inUse: '',
+  companyId: ''
 })
 
 const loading = ref(false)
@@ -180,8 +231,13 @@ const tableData = ref<RoleItem[]>([])
 const loadRoles = async () => {
   loading.value = true
   try {
-    const data = await getRoles()
-    tableData.value = Array.isArray(data) ? data : []
+    const params: any = {}
+    if (searchForm.companyId) {
+      params.org_id = searchForm.companyId
+    }
+    const res = await getRoles(params)
+    const data = res.data ?? res
+    tableData.value = data.items || []
   } catch (err) {
     ElMessage.error('加载角色列表失败')
   } finally {
@@ -190,6 +246,7 @@ const loadRoles = async () => {
 }
 
 onMounted(() => {
+  loadCompanies()
   loadRoles()
 })
 
@@ -198,7 +255,7 @@ const pageSize = ref(10)
 
 const filteredData = computed(() => {
   return tableData.value.filter(item => {
-    const matchId = !searchForm.id || item.id.includes(searchForm.id)
+    const matchId = !searchForm.id || String(item.id).includes(searchForm.id)
     const matchName = !searchForm.name || item.name.includes(searchForm.name)
     const matchDef = !searchForm.definition || item.definition === searchForm.definition
     const matchUse = !searchForm.inUse || (searchForm.inUse === '是' ? item.inUse : !item.inUse)
@@ -220,7 +277,6 @@ const detailDialogVisible = ref(false)
 const permissionDialogVisible = ref(false)
 const dialogTitle = ref('新增角色')
 const formRef = ref()
-const treeRef = ref()
 const editingId = ref<string | null>(null)
 
 const defaultForm = () => ({
@@ -233,12 +289,29 @@ const defaultForm = () => ({
 const form = reactive(defaultForm())
 
 const permissionForm = reactive({
-  name: ''
+  name: '',
+  roleId: ''
 })
 
 const accountList = ref<{ username: string; name: string; phone: string; org: string }[]>([])
 
-const permissionTreeData: PermissionNode[] = []
+const resourceGroups = ref<ResourceGroup[]>([])
+const activeGroups = ref<string[]>([])
+
+const companyOptions = ref<{ id: number; name: string; label: string }[]>([])
+
+const loadCompanies = async () => {
+  try {
+    const res = await getOrgTree()
+    const tree = res.data ?? res
+    // Root nodes (companies) have no parent_id
+    companyOptions.value = (tree || [])
+      .filter((n: any) => !n.parent_id)
+      .map((n: any) => ({ id: n.id, name: n.name, label: n.label || n.name }))
+  } catch (err) {
+    companyOptions.value = []
+  }
+}
 
 const rules = {
   id: [{ required: true, message: '请输入角色ID', trigger: 'blur' }],
@@ -247,7 +320,7 @@ const rules = {
   inUse: [{ required: true, message: '请选择是否使用', trigger: 'change' }]
 }
 
-const openModal = (type: 'add' | 'edit' | 'detail' | 'permission', row?: RoleItem) => {
+const openModal = async (type: 'add' | 'edit' | 'detail' | 'permission', row?: RoleItem) => {
   if (type === 'add') {
     Object.assign(form, defaultForm())
     editingId.value = null
@@ -264,10 +337,57 @@ const openModal = (type: 'add' | 'edit' | 'detail' | 'permission', row?: RoleIte
     })
     dialogVisible.value = true
   } else if (type === 'detail' && row) {
-    accountList.value = row.accounts || []
+    try {
+      const params: any = {}
+      if (searchForm.companyId) {
+        params.org_id = searchForm.companyId
+      }
+      const users = await getRoleUsers(row.id, params)
+      accountList.value = users.map((u: any) => ({
+        username: u.username,
+        name: u.name || u.real_name || u.username,
+        phone: u.phone || '-',
+        org: u.org || '-'
+      }))
+    } catch (err) {
+      ElMessage.error('加载账号信息失败')
+      accountList.value = []
+    }
     detailDialogVisible.value = true
   } else if (type === 'permission' && row) {
     permissionForm.name = row.name
+    permissionForm.roleId = String(row.id)
+    try {
+      const res = await getRoleResources(row.id)
+      const data = res.data ?? res
+      const checkedSet = new Set(data.checked_ids || [])
+      const allResources: any[] = data.resources || []
+      // Group by resource_group
+      const groupMap = new Map<string, ResourceItem[]>()
+      for (const r of allResources) {
+        const item: ResourceItem = {
+          id: r.id,
+          name: r.name,
+          group: r.group,
+          method: r.method,
+          checked: checkedSet.has(r.id),
+        }
+        if (!groupMap.has(r.group)) {
+          groupMap.set(r.group, [])
+        }
+        groupMap.get(r.group)!.push(item)
+      }
+      resourceGroups.value = Array.from(groupMap.entries()).map(([group, items]) => ({
+        group,
+        items,
+        checkedIds: items.filter(i => i.checked).map(i => i.id),
+      }))
+      // Expand first few groups by default
+      activeGroups.value = resourceGroups.value.slice(0, 5).map(g => g.group)
+    } catch (err) {
+      ElMessage.error('加载权限列表失败')
+      resourceGroups.value = []
+    }
     permissionDialogVisible.value = true
   }
 }
@@ -291,9 +411,41 @@ const handleSubmit = async () => {
   }
 }
 
-const handlePermissionSubmit = () => {
-  ElMessage.success('权限设置成功')
-  permissionDialogVisible.value = false
+// Helper: check if all items in a group are checked
+const isGroupChecked = (group: ResourceGroup) => {
+  return group.items.length > 0 && group.items.every(i => i.checked)
+}
+
+// Helper: check if some (but not all) items in a group are checked
+const isGroupIndeterminate = (group: ResourceGroup) => {
+  const checkedCount = group.items.filter(i => i.checked).length
+  return checkedCount > 0 && checkedCount < group.items.length
+}
+
+// Toggle all items in a group
+const toggleGroup = (group: ResourceGroup, checked: boolean) => {
+  for (const item of group.items) {
+    item.checked = checked
+  }
+  group.checkedIds = checked ? group.items.map(i => i.id) : []
+}
+
+const handlePermissionSubmit = async () => {
+  try {
+    const checkedIds: number[] = []
+    for (const group of resourceGroups.value) {
+      for (const item of group.items) {
+        if (item.checked) {
+          checkedIds.push(item.id)
+        }
+      }
+    }
+    await setRoleResources(permissionForm.roleId, checkedIds)
+    ElMessage.success('权限设置成功')
+    permissionDialogVisible.value = false
+  } catch (err) {
+    ElMessage.error('权限设置失败')
+  }
 }
 
 const handleDelete = async (row: RoleItem) => {
@@ -395,5 +547,78 @@ const handleDelete = async (row: RoleItem) => {
   border-color: #FF006E !important;
   color: #FF4D6D !important;
   box-shadow: 0 0 12px rgba(255, 0, 110, 0.3);
+}
+
+/* Resource permission panel */
+.resource-permission-panel {
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  padding: 8px;
+}
+
+.group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.group-count {
+  color: #909399;
+  font-size: 12px;
+}
+
+.resource-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 8px;
+}
+
+.resource-item {
+  margin-right: 0;
+}
+
+.resource-item :deep(.el-checkbox__label) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.resource-method {
+  display: inline-block;
+  min-width: 44px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.resource-method.get {
+  background: #e6f7ff;
+  color: #096dd9;
+}
+
+.resource-method.post {
+  background: #f6ffed;
+  color: #389e0d;
+}
+
+.resource-method.put {
+  background: #fff7e6;
+  color: #d46b08;
+}
+
+.resource-method.delete {
+  background: #fff1f0;
+  color: #cf1322;
+}
+
+.resource-name {
+  font-family: monospace;
+  color: #303133;
 }
 </style>

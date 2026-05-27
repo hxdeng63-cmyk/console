@@ -1,5 +1,5 @@
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, computed_field
 from typing import Optional
 
 
@@ -27,6 +27,8 @@ class UserRequest(BaseModel):
     org_id: Optional[int] = None
     status: str = "active"
     password: Optional[str] = None
+    role: str = "user"
+    employee_id: Optional[str] = None
 
 
 class UserResponse(BaseModel):
@@ -41,6 +43,8 @@ class UserResponse(BaseModel):
     gender: Optional[str]
     org_id: Optional[int]
     status: str
+    role: str
+    employee_id: Optional[str]
     created_at: datetime
     updated_at: datetime
     deleted_at: Optional[datetime]
@@ -69,6 +73,28 @@ class RoleResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     deleted_at: Optional[datetime]
+
+    # Computed fields for frontend compatibility
+    @computed_field
+    @property
+    def definition(self) -> str:
+        return self.description or ""
+
+    @computed_field
+    @property
+    def in_use(self) -> bool:
+        return self.status == "active"
+
+
+class RoleUserResponse(BaseModel):
+    """User info returned within role's user list."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    username: str
+    real_name: Optional[str]
+    phone: Optional[str]
+    org_name: Optional[str] = ""
 
 
 class OrganizationRequest(BaseModel):

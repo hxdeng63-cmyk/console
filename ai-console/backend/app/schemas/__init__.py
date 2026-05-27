@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict, computed_field
 from datetime import datetime
 from typing import Optional, Any
 
@@ -493,10 +493,12 @@ class LicenseResponse(LicenseBase):
 
 class OperationLogBase(BaseModel):
     username: Optional[str] = None
-    action: Optional[str] = None
+    method: Optional[str] = None
+    path: Optional[str] = None
     ip: Optional[str] = None
+    status_code: Optional[int] = None
     result: Optional[str] = None
-    module: Optional[str] = None
+    description: Optional[str] = None
     action_time: Optional[datetime] = None
 
 
@@ -509,13 +511,29 @@ class OperationLogUpdate(OperationLogBase):
 
 
 class OperationLogResponse(OperationLogBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     created_at: datetime
     updated_at: datetime
     deleted_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    @computed_field
+    @property
+    def operator(self) -> str:
+        return self.username or ""
+
+    @computed_field
+    @property
+    def real_name(self) -> str:
+        return self.username or ""
+
+    @computed_field
+    @property
+    def date(self) -> str:
+        if self.action_time:
+            return self.action_time.strftime("%Y-%m-%d %H:%M:%S")
+        return "-"
 
 
 class DataSourceBase(BaseModel):

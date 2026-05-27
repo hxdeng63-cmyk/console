@@ -244,7 +244,11 @@ const handleDelete = async (data: OrgNode) => {
 }
 
 const handleConfirm = async () => {
-  const valid = await (formRef.value as any)?.validate().catch(() => false)
+  if (!formRef.value) {
+    ElMessage.error('表单未初始化')
+    return
+  }
+  const valid = await (formRef.value as any).validate().catch(() => false)
   if (!valid) return
 
   try {
@@ -270,8 +274,9 @@ const handleConfirm = async () => {
     }
     dialogVisible.value = false
     await fetchTree()
-  } catch {
-    ElMessage.error('操作失败')
+  } catch (err: any) {
+    console.error('Org operation failed:', err)
+    ElMessage.error(err?.response?.data?.detail || err?.message || '操作失败')
   }
 }
 
@@ -286,8 +291,9 @@ const handleSave = async () => {
     })
     await fetchTree()
     ElMessage.success('保存成功')
-  } catch {
-    ElMessage.error('保存失败')
+  } catch (err: any) {
+    console.error('Org save failed:', err)
+    ElMessage.error(err?.response?.data?.detail || err?.message || '保存失败')
   }
 }
 </script>

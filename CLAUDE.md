@@ -87,6 +87,9 @@ After completing any change, review the diff and answer:
 ### Database Seeds
 - **Menus**: `scripts/seed_menus.py` inserts 42 menu records matching frontend routes.
 - **Resources**: `scripts/seed_resources.py` dynamically extracts all FastAPI routes (`app.routes`) and inserts 191 permission records grouped by `resource_group` + `service_code`.
+- **Microservices**: `scripts/seed_microservices.py` inserts 15 services (code 001-015).
+- **UI Themes**: `scripts/seed_ui_themes.py` inserts 3 themes (default/dark/mobile).
+- **Users & Orgs**: `scripts/seed_users_orgs.py` inserts 1 company + 4 departments + 5 users. Backend User model extended with `role` + `employee_id` fields; frontend org selector now uses el-select dropdown.
 
 ### Ports & URLs
 - Frontend dev server: `http://localhost:5173` (Vite)
@@ -98,3 +101,7 @@ After completing any change, review the diff and answer:
 - Conda env: `llm_deng`
 - Python path: `/home/daxiong/tool/miniconda3/envs/llm_deng/bin/python`
 - Run seeds with: `DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:5434/ai_console" python scripts/seed_xxx.py`
+
+## 6. User Preferences
+
+**Server Startup**: 不需要帮用户启动前端与后端。如果需要启动，只告诉用户启动命令，由用户自己来启动，因为用户需要看日志。

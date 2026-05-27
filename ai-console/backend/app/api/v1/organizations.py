@@ -96,8 +96,8 @@ def _map_org_fields(data: dict) -> dict:
     elif data.get("parent_id") is not None:
         mapped["parent_id"] = data["parent_id"]
 
-    # Pass through other fields
-    for key in ("level", "code", "remark"):
+    # Pass through other fields (exclude level — backend calculates it)
+    for key in ("code", "remark"):
         if key in data and data[key] is not None:
             mapped[key] = data[key]
     return mapped
@@ -106,6 +106,24 @@ def _map_org_fields(data: dict) -> dict:
 @router.post("", response_model=OrganizationResponse)
 async def create_organization(data: OrganizationRequest, db: AsyncSession = Depends(get_db)):
     payload = _map_org_fields(data.model_dump())
+
+    # Auto-calculate level for child nodes
+    parent_id = payload.get("parent_id")
+    if parent_id is not None:
+        parent_query = select(Organization).where(Organization.id == parent_id, Organization.deleted_at.is_(None))
+        parent_result = await db.execute(parent_query)
+        parent = parent_result.scalar_one_or_none()
+        if parent:
+            payload["level"] = parent.level + 1
+        else:
+            raise HTTPException(status_code=400, detail="Parent organization not found")
+    else:
+        payload["level"] = 1
+
+    # Ensure name is present
+    if not payload.get("name"):
+        raise HTTPException(status_code=422, detail="Organization name is required")
+
     org = Organization(**payload)
     db.add(org)
     await db.commit()
@@ -122,6 +140,21 @@ async def update_organization(item_id: int, data: OrganizationRequest, db: Async
         raise HTTPException(status_code=404, detail="Organization not found")
 
     payload = _map_org_fields(data.model_dump())
+
+    # Recalculate level if parent_id changed
+    if "parent_id" in payload:
+        parent_id = payload["parent_id"]
+        if parent_id is not None:
+            parent_query = select(Organization).where(Organization.id == parent_id, Organization.deleted_at.is_(None))
+            parent_result = await db.execute(parent_query)
+            parent = parent_result.scalar_one_or_none()
+            if parent:
+                payload["level"] = parent.level + 1
+            else:
+                raise HTTPException(status_code=400, detail="Parent organization not found")
+        else:
+            payload["level"] = 1
+
     for key, value in payload.items():
         setattr(org, key, value)
 

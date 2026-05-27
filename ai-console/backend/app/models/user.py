@@ -16,6 +16,8 @@ class User(BaseModel):
     gender: Mapped[str | None] = mapped_column(String(10), nullable=True)
     org_id: Mapped[int | None] = mapped_column(ForeignKey("organization.id"), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
+    role: Mapped[str] = mapped_column(String(20), default="user", nullable=False)
+    employee_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     __table_args__ = (
         Index("idx_user_org", "org_id"),

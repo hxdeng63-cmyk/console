@@ -1,10 +1,12 @@
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from app.api.v1 import router as api_v1_router
-from app.core.database import engine
+from app.core.database import engine, AsyncSessionLocal
 from app.core.database import Base
+from app.models.operation_log import OperationLog
 
 # Configure uvicorn/access logging
 logging.getLogger("uvicorn").setLevel(logging.INFO)
@@ -32,6 +34,52 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="AI Console API", version="1.0.0", lifespan=lifespan)
 
 app.include_router(api_v1_router, prefix="/api/v1")
+
+
+# Operation log middleware — records every API request
+@app.middleware("http")
+async def operation_log_middleware(request: Request, call_next):
+    start_time = datetime.utcnow()
+    response = await call_next(request)
+
+    # Skip health checks, docs, and static assets
+    path = request.url.path
+    if path in ("/health", "/docs", "/openapi.json") or path.startswith("/static"):
+        return response
+
+    # Extract username from Authorization header (if present)
+    username = None
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header.replace("Bearer ", "")
+        try:
+            from jose import jwt
+            from app.core.config import settings
+            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+            username = payload.get("username")
+        except Exception:
+            pass
+
+    # Async fire-and-forget log write
+    try:
+        async with AsyncSessionLocal() as db:
+            log = OperationLog(
+                username=username,
+                method=request.method,
+                path=path,
+                ip=request.client.host if request.client else None,
+                status_code=response.status_code,
+                result="success" if response.status_code < 400 else "failed",
+                description="API request",
+                action_time=start_time,
+            )
+            db.add(log)
+            await db.commit()
+    except Exception:
+        # Never fail the main request because logging failed
+        pass
+
+    return response
 
 
 @app.get("/health")

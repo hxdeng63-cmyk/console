@@ -110,8 +110,37 @@
         <el-form-item label="手机号" prop="phone">
           <el-input v-model="form.phone" placeholder="请输入手机号" />
         </el-form-item>
-        <el-form-item label="组织" prop="org">
-          <el-input v-model="form.org" placeholder="请输入组织" />
+        <el-form-item label="公司" prop="company_id">
+          <el-select
+            v-model="form.company_id"
+            placeholder="请选择公司"
+            style="width: 100%"
+            clearable
+            @change="onCompanyChange"
+          >
+            <el-option
+              v-for="company in companyList"
+              :key="company.id"
+              :label="company.name"
+              :value="company.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="部门" prop="org_id">
+          <el-select
+            v-model="form.org_id"
+            placeholder="请先选择公司"
+            style="width: 100%"
+            clearable
+            :disabled="!form.company_id"
+          >
+            <el-option
+              v-for="dept in deptList"
+              :key="dept.id"
+              :label="dept.name"
+              :value="dept.id"
+            />
+          </el-select>
         </el-form-item>
         <el-form-item label="用户角色" prop="role">
           <el-select v-model="form.role" placeholder="请选择用户角色" style="width: 100%">
@@ -211,6 +240,7 @@ interface UserItem {
   isDept?: boolean
   isUser?: boolean
   children?: any[]
+  raw?: any
 }
 
 interface OrgNode {
@@ -234,6 +264,8 @@ interface ApiUser {
   gender?: string
   org_id?: number
   status: string
+  role: string
+  employee_id?: string
   created_at?: string
   updated_at?: string
 }
@@ -262,6 +294,7 @@ const toggleExpand = () => {
 }
 
 const treeData = ref<UserItem[]>([])
+const orgList = ref<OrgNode[]>([])
 
 const searchForm = reactive({
   name: '',
@@ -276,7 +309,9 @@ const handleSearch = () => {
 }
 
 // 深度过滤树：如果节点的子孙中有匹配的用户，则保留该节点
+// 没有搜索条件时保留所有组织节点（包括空的），确保与组织管理同步
 const filterTree = (nodes: UserItem[]): UserItem[] => {
+  const hasSearch = searchForm.name || searchForm.username || searchForm.phone || searchForm.role || searchForm.status
   return nodes.reduce<UserItem[]>((acc, node) => {
     if (node.isUser) {
       const matchName = !searchForm.name || node.name.includes(searchForm.name)
@@ -289,17 +324,52 @@ const filterTree = (nodes: UserItem[]): UserItem[] => {
       }
       return acc
     }
-    if (node.children && node.children.length > 0) {
-      const filteredChildren = filterTree(node.children)
-      if (filteredChildren.length > 0) {
-        acc.push({ ...node, children: filteredChildren })
-      }
+    // 组织节点：递归过滤子节点
+    const filteredChildren = node.children && node.children.length > 0
+      ? filterTree(node.children)
+      : []
+    // 有搜索时只保留有匹配子节点的组织；无搜索时保留所有组织
+    if (filteredChildren.length > 0 || !hasSearch) {
+      acc.push({ ...node, children: filteredChildren })
     }
     return acc
   }, [])
 }
 
 const filteredTreeData = computed(() => filterTree(treeData.value))
+
+// 公司列表：level=1 的根组织
+const companyList = computed(() => orgList.value.filter(o => o.level === 1))
+
+// 部门列表：选中公司下的子组织（level=2）
+const deptList = computed(() => {
+  if (!form.company_id) return []
+  const company = orgList.value.find(o => o.id === form.company_id)
+  return company?.children?.filter(o => o.level === 2) || []
+})
+
+const onCompanyChange = (companyId: number) => {
+  form.org_id = null
+  if (companyId) {
+    const company = orgList.value.find(o => o.id === companyId)
+    // 如果该公司只有一个部门，自动选中
+    const depts = company?.children?.filter(o => o.level === 2) || []
+    if (depts.length === 1) {
+      form.org_id = depts[0].id
+    }
+  }
+}
+
+// 根据部门 ID 查找所属公司 ID
+const findCompanyByDeptId = (deptId: number | null): number | null => {
+  if (!deptId) return null
+  for (const company of orgList.value) {
+    if (company.children?.some((child: OrgNode) => child.id === deptId)) {
+      return company.id
+    }
+  }
+  return null
+}
 
 const dialogVisible = ref(false)
 const detailDialogVisible = ref(false)
@@ -314,7 +384,8 @@ const defaultForm = () => ({
   name: '',
   employeeId: '',
   phone: '',
-  org: '',
+  company_id: null as number | null,
+  org_id: null as number | null,
   role: 'user',
   status: '正常'
 })
@@ -367,12 +438,14 @@ const openModal = (type: 'add' | 'edit' | 'detail' | 'password', row?: UserItem)
   } else if (type === 'edit' && row) {
     editingId.value = row.id
     dialogTitle.value = '编辑用户'
+    const orgId = row.raw?.org_id ?? null
     Object.assign(form, {
       username: row.username,
       name: row.name,
       employeeId: row.employeeId,
       phone: row.phone,
-      org: row.org,
+      company_id: findCompanyByDeptId(orgId),
+      org_id: orgId,
       role: row.role,
       status: row.status
     })
@@ -415,12 +488,13 @@ const buildUserTree = (orgs: OrgNode[], users: ApiUser[]): UserItem[] => {
       avatar: u.avatar,
       username: u.username,
       name: u.real_name || u.username,
-      employeeId: '',
+      employeeId: u.employee_id || '',
       phone: u.phone || '',
       org: org.name,
-      role: 'user',
+      role: u.role || 'user',
       status: frontendStatus(u.status),
-      isUser: true
+      isUser: true,
+      raw: u
     }))
 
     const deptChildren: UserItem[] = (org.children || []).map(transformOrg)
@@ -453,6 +527,7 @@ const loadData = async () => {
     ])
     const orgs: OrgNode[] = Array.isArray(orgRes) ? orgRes : []
     const users: ApiUser[] = userRes?.items || []
+    orgList.value = orgs
     treeData.value = buildUserTree(orgs, users)
   } catch (error) {
     ElMessage.error('加载数据失败')
@@ -472,10 +547,11 @@ const handleSubmit = async () => {
   const payload = {
     username: form.username,
     real_name: form.name,
+    employee_id: form.employeeId,
     phone: form.phone,
     status: backendStatus(form.status),
-    // Backend doesn't have role/employee_id fields; keep them in UI only
-    org_id: undefined as number | undefined
+    role: form.role,
+    org_id: form.org_id ?? undefined
   }
 
   try {

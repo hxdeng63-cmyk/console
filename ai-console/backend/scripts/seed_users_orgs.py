@@ -1,6 +1,7 @@
 import asyncio
 import sys
-sys.path.insert(0, r"E:\python\code\console\ai-console\backend")
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -73,21 +74,23 @@ async def seed_users_orgs():
 
         # Create users
         users_data = [
-            ("zhangsan", "张三", "13800138001", "active", "研发部"),
-            ("lisi", "李四", "13800138002", "active", "研发部"),
-            ("wangwu", "王五", "13800138003", "active", "市场部"),
-            ("zhaoliu", "赵六", "13800138004", "active", "运维部"),
-            ("sunqi", "孙七", "13800138005", "inactive", "人事部"),
+            ("zhangsan", "张三", "EMP001", "13800138001", "active", "admin", "研发部"),
+            ("lisi", "李四", "EMP002", "13800138002", "active", "user", "研发部"),
+            ("wangwu", "王五", "EMP003", "13800138003", "active", "user", "市场部"),
+            ("zhaoliu", "赵六", "EMP004", "13800138004", "active", "user", "运维部"),
+            ("sunqi", "孙七", "EMP005", "13800138005", "inactive", "guest", "人事部"),
         ]
 
-        for username, real_name, phone, status, dept_name in users_data:
+        for username, real_name, employee_id, phone, status, role, dept_name in users_data:
             db.add(User(
                 username=username,
                 real_name=real_name,
+                employee_id=employee_id,
                 password=DEFAULT_PASSWORD_HASH,
                 phone=phone,
                 org_id=dept_map.get(dept_name),
                 status=status,
+                role=role,
                 created_at=now,
                 updated_at=now
             ))

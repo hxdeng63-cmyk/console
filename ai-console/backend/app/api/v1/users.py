@@ -2,12 +2,13 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
-from passlib.context import CryptContext
+import bcrypt
 from jose import jwt
 
 from app.core.database import get_db
 from app.core.config import settings
 from app.models.user import User
+from app.models.user_role import UserRole
 from app.schemas.request.user import (
     UserRegisterRequest,
     UserLoginRequest,
@@ -16,12 +17,15 @@ from app.schemas.request.user import (
     TokenResponse,
 )
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 router = APIRouter(prefix="/users", tags=["users"])
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+
+
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
@@ -40,6 +44,8 @@ async def list_users(
     page_size: int = Query(20, ge=1, le=1000),
     keyword: str = Query(None),
     status: str = Query(None),
+    role: str = Query(None),
+    role_id: int = Query(None),
     org_id: int = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -54,6 +60,10 @@ async def list_users(
         )
     if status:
         query = query.where(User.status == status)
+    if role:
+        query = query.where(User.role == role)
+    if role_id:
+        query = query.join(UserRole).where(UserRole.role_id == role_id)
     if org_id:
         query = query.where(User.org_id == org_id)
 
@@ -91,7 +101,7 @@ async def register(data: UserRegisterRequest, db: AsyncSession = Depends(get_db)
     if existing:
         raise HTTPException(status_code=400, detail="Username already exists")
 
-    hashed_password = pwd_context.hash(data.password)
+    hashed_password = hash_password(data.password)
     user = User(
         username=data.username,
         password=hashed_password,
@@ -129,7 +139,7 @@ async def create_user(data: UserRequest, db: AsyncSession = Depends(get_db)):
 
     user_data = data.model_dump(exclude={"password"})
     if data.password:
-        user_data["password"] = pwd_context.hash(data.password)
+        user_data["password"] = hash_password(data.password)
 
     user = User(**user_data)
     db.add(user)
@@ -148,7 +158,7 @@ async def update_user(item_id: int, data: UserRequest, db: AsyncSession = Depend
 
     user_data = data.model_dump(exclude={"password"})
     if data.password:
-        user_data["password"] = pwd_context.hash(data.password)
+        user_data["password"] = hash_password(data.password)
 
     for key, value in user_data.items():
         setattr(user, key, value)
@@ -180,6 +190,6 @@ async def reset_user_password(item_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="User not found")
 
     # Reset to default password
-    user.password = pwd_context.hash("123456")
+    user.password = hash_password("123456")
     await db.commit()
     return {"message": "Password reset successfully"}

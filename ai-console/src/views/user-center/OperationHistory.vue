@@ -18,7 +18,11 @@
 
     <!-- 表格 -->
     <el-table :data="tableData" border stripe v-loading="loading">
-      <el-table-column prop="operator" label="操作人" width="110" align="center" />
+      <el-table-column prop="real_name" label="操作人" width="130" align="center">
+        <template #default="{ row }">
+          {{ row.real_name || row.operator || '自动记录的请求' }}
+        </template>
+      </el-table-column>
       <el-table-column prop="date" label="日期" width="170" />
       <el-table-column prop="status_code" label="状态码" width="80" align="center">
         <template #default="{ row }">

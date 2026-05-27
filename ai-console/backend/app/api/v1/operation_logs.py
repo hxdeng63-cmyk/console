@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models import OperationLog
+from app.models.user import User
 from app.schemas import (
     OperationLogCreate, OperationLogUpdate, OperationLogResponse,
     PaginatedResponse
@@ -19,25 +20,37 @@ async def list_operation_logs(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     keyword: Optional[str] = None,
-    module: Optional[str] = None,
-    username: Optional[str] = None,
+    operator: Optional[str] = None,
+    ip: Optional[str] = None,
+    method: Optional[str] = None,
+    path: Optional[str] = None,
     db: AsyncSession = Depends(get_db)
 ):
-    query = select(OperationLog).where(OperationLog.deleted_at.is_(None))
+    query = (
+        select(OperationLog, User.real_name)
+        .outerjoin(User, User.username == OperationLog.username)
+        .where(OperationLog.deleted_at.is_(None))
+    )
 
     if keyword:
         query = query.where(
             or_(
                 OperationLog.username.ilike(f"%{keyword}%"),
-                OperationLog.action.ilike(f"%{keyword}%"),
+                OperationLog.path.ilike(f"%{keyword}%"),
             )
         )
 
-    if module:
-        query = query.where(OperationLog.module == module)
+    if operator:
+        query = query.where(OperationLog.username.ilike(f"%{operator}%"))
 
-    if username:
-        query = query.where(OperationLog.username.ilike(f"%{username}%"))
+    if ip:
+        query = query.where(OperationLog.ip.ilike(f"%{ip}%"))
+
+    if method:
+        query = query.where(OperationLog.method == method)
+
+    if path:
+        query = query.where(OperationLog.path.ilike(f"%{path}%"))
 
     count_query = select(func.count()).select_from(query.subquery())
     total_result = await db.execute(count_query)
@@ -46,13 +59,18 @@ async def list_operation_logs(
     query = query.order_by(OperationLog.action_time.desc())
     query = query.offset((page - 1) * page_size).limit(page_size)
     result = await db.execute(query)
-    items = result.scalars().all()
+
+    items = []
+    for log, real_name in result.all():
+        data = OperationLogResponse.model_validate(log).model_dump()
+        data["real_name"] = real_name or log.username or ""
+        items.append(data)
 
     return PaginatedResponse(
         total=total,
         page=page,
         page_size=page_size,
-        items=[OperationLogResponse.model_validate(item) for item in items]
+        items=items
     )
 
 
@@ -72,26 +90,34 @@ async def get_operation_log(item_id: int, db: AsyncSession = Depends(get_db)):
 @router.get("/export")
 async def export_operation_logs(
     keyword: Optional[str] = None,
-    module: Optional[str] = None,
+    description: Optional[str] = None,
     db: AsyncSession = Depends(get_db)
 ):
-    query = select(OperationLog).where(OperationLog.deleted_at.is_(None))
+    query = (
+        select(OperationLog, User.real_name)
+        .outerjoin(User, User.username == OperationLog.username)
+        .where(OperationLog.deleted_at.is_(None))
+    )
 
     if keyword:
         query = query.where(
             or_(
                 OperationLog.username.ilike(f"%{keyword}%"),
-                OperationLog.action.ilike(f"%{keyword}%"),
+                OperationLog.path.ilike(f"%{keyword}%"),
             )
         )
 
-    if module:
-        query = query.where(OperationLog.module == module)
+    if description:
+        query = query.where(OperationLog.description.ilike(f"%{description}%"))
 
     result = await db.execute(query)
-    items = result.scalars().all()
+    items = []
+    for log, real_name in result.all():
+        data = OperationLogResponse.model_validate(log).model_dump()
+        data["real_name"] = real_name or log.username or ""
+        items.append(data)
     return {
-        "items": [OperationLogResponse.model_validate(item) for item in items],
+        "items": items,
         "total": len(items),
     }
 

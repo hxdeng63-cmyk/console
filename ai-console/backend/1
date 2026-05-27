@@ -1,0 +1,11 @@
+/home/daxiong/code/console/ai-console/backend/app/api/v1/warning_events.py:154: FastAPIDeprecationWarning: `regex` has been deprecated, please use `pattern` instead
+  status: str = Query(..., regex="^(pending|processing|resolved|ignored)$"),
+INFO:     Started server process [3106737]
+INFO:     Waiting for application startup.
+2026-05-27 15:41:35,006 - app.main - INFO - Database tables created (if not exist)
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8080 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [3106737]

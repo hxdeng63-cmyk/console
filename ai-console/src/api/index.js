@@ -23,12 +23,15 @@ request.interceptors.response.use(
   response => {
     const res = response.data
     // Support both wrapped {code, data} format and raw REST responses
-    if (res.code !== undefined && res.code !== 0) {
+    // Wrapped format must have BOTH 'code' and 'data' fields to avoid
+    // false positives when REST resources have a 'code' property (e.g., Organization.code)
+    const isWrappedFormat = res.code !== undefined && res.data !== undefined
+    if (isWrappedFormat && res.code !== 0) {
       ElMessage.error(res.message || 'Request failed')
       return Promise.reject(new Error(res.message))
     }
     // If wrapped format, return data; otherwise return raw response
-    return res.data !== undefined ? res.data : res
+    return isWrappedFormat ? res.data : res
   },
   error => {
     if (error.response?.status === 401) {
