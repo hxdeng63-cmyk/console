@@ -97,9 +97,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive } from 'vue'
+import { ref, computed, reactive, onMounted } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  getUIThemes,
+  createUITheme,
+  updateUITheme,
+  deleteUITheme
+} from '@/api/ui-themes'
 
 interface PlatformItem {
   id: string
@@ -108,9 +114,12 @@ interface PlatformItem {
   modules: string[]
   menu: string
   theme: string
+  is_active?: boolean
+  raw?: any
 }
 
 const tableData = ref<PlatformItem[]>([])
+const loading = ref(false)
 
 const currentPage = ref(1)
 const pageSize = ref(10)
@@ -141,6 +150,37 @@ const rules = {
   theme: [{ required: true, message: '请选择主题', trigger: 'change' }]
 }
 
+const loadData = async () => {
+  loading.value = true
+  try {
+    const res = await getUIThemes({ pageNo: 1, pageSize: 100 })
+    const items = res.items || res.list || []
+    tableData.value = items.map((item: any) => ({
+      id: String(item.id),
+      platform: item.name,
+      logo: extractLogoKey(item.logo_url),
+      modules: [],
+      menu: `${item.platform || 'web'} | ${item.is_active ? '已激活' : '未激活'}`,
+      theme: item.theme_color === '#303133' || item.theme_color === '#000000' ? '黑色' : '白色',
+      is_active: item.is_active,
+      raw: item
+    }))
+  } catch (error) {
+    console.error('加载 UI 主题失败:', error)
+    ElMessage.error('加载数据失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+const extractLogoKey = (url?: string) => {
+  if (!url) return ''
+  const m = url.match(/logo-(.+)\.png/)
+  return m ? m[1] : ''
+}
+
+const buildLogoUrl = (key: string) => `/logo-${key}.png`
+
 const openModal = (type: 'add' | 'edit', row?: PlatformItem) => {
   Object.assign(form, defaultForm())
   if (type === 'edit' && row) {
@@ -163,44 +203,47 @@ const handleSubmit = async () => {
   const valid = await (formRef.value as any).validate().catch(() => false)
   if (!valid) return
 
-  const menuText = form.modules.join(',')
-
-  if (editingId.value) {
-    const idx = tableData.value.findIndex(item => item.id === editingId.value)
-    if (idx !== -1) {
-      tableData.value[idx] = {
-        id: editingId.value,
-        platform: form.platform,
-        logo: form.logo,
-        modules: [...form.modules],
-        menu: menuText,
-        theme: form.theme
-      }
-    }
-    ElMessage.success('编辑成功')
-  } else {
-    tableData.value.push({
-      id: Math.random().toString(36).substring(2, 18),
-      platform: form.platform,
-      logo: form.logo,
-      modules: [...form.modules],
-      menu: menuText,
-      theme: form.theme
-    })
-    ElMessage.success('新增成功')
+  const payload = {
+    name: form.platform,
+    platform: 'web',
+    theme_color: form.theme === '黑色' ? '#303133' : '#FFFFFF',
+    logo_url: buildLogoUrl(form.logo),
+    is_active: false
   }
-  dialogVisible.value = false
+
+  try {
+    if (editingId.value) {
+      const row = tableData.value.find(item => item.id === editingId.value)
+      await updateUITheme(Number(editingId.value), { ...payload, is_active: row?.is_active ?? false })
+      ElMessage.success('编辑成功')
+    } else {
+      await createUITheme(payload)
+      ElMessage.success('新增成功')
+    }
+    dialogVisible.value = false
+    await loadData()
+  } catch (error) {
+    console.error('保存失败:', error)
+    ElMessage.error('保存失败')
+  }
 }
 
 const handleDelete = (row: PlatformItem) => {
   ElMessageBox.confirm('确定删除该平台配置吗？', '提示', { type: 'warning' })
-    .then(() => {
-      const idx = tableData.value.findIndex(item => item.id === row.id)
-      if (idx !== -1) tableData.value.splice(idx, 1)
-      ElMessage.success('删除成功')
+    .then(async () => {
+      try {
+        await deleteUITheme(Number(row.id))
+        ElMessage.success('删除成功')
+        await loadData()
+      } catch (error) {
+        console.error('删除失败:', error)
+        ElMessage.error('删除失败')
+      }
     })
     .catch(() => {})
 }
+
+onMounted(loadData)
 </script>
 
 <style scoped>

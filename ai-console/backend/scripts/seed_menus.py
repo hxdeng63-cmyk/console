@@ -1,9 +1,12 @@
 import asyncio
-from datetime import datetime
-from sqlalchemy.ext.asyncio import AsyncSession
-
 import sys
-sys.path.insert(0, r"E:\python\code\console\ai-console\backend")
+from datetime import datetime
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
 from app.models.menu import Menu
@@ -11,8 +14,6 @@ from app.models.menu import Menu
 
 async def seed_menus():
     async with AsyncSessionLocal() as db:
-        # 检查是否已有数据
-        from sqlalchemy import select, func
         count_result = await db.execute(select(func.count()).select_from(Menu).where(Menu.deleted_at.is_(None)))
         count = count_result.scalar()
         if count > 0:
@@ -27,12 +28,8 @@ async def seed_menus():
         # 根菜单
         monitor = make(name="monitor", path="/monitor", hidden=False, sort=1, component="Layout", title="监控中心", icon="Monitor")
         console = make(name="console", path="/console", hidden=False, sort=2, component="Layout", title="控制台", icon="Setting")
-        data_clean = make(name="dataClean", path="/data-clean", hidden=False, sort=3, component="Layout", title="数据清理", icon="Delete")
-        algorithm = make(name="algorithm", path="/algorithm", hidden=False, sort=4, component="Layout", title="算法管理", icon="Cpu")
-        firmware = make(name="firmware", path="/firmware", hidden=False, sort=5, component="Layout", title="固件中心", icon="Box")
-        events = make(name="events", path="/events", hidden=False, sort=6, component="Layout", title="预警事件", icon="Bell")
 
-        db.add_all([monitor, console, data_clean, algorithm, firmware, events])
+        db.add_all([monitor, console])
         await db.flush()
 
         # 监控中心子菜单
@@ -125,13 +122,17 @@ async def seed_menus():
         ]
         db.add_all(algo_items)
 
-        # 独立的叶子根菜单
-        leaf_roots = [
-            make(name="dataCleanPage", path="/data-clean", hidden=False, parent_id=data_clean.id, sort=1, component="views/Console", title="数据清理", icon="Delete"),
-            make(name="firmwarePage", path="/firmware", hidden=False, parent_id=firmware.id, sort=1, component="views/Console", title="固件中心", icon="Box"),
-            make(name="eventsPage", path="/events", hidden=False, parent_id=events.id, sort=1, component="views/Console", title="预警事件", icon="Bell"),
-        ]
-        db.add_all(leaf_roots)
+        # 控制台 -> 数据清理（从独立根菜单移入 console 子菜单）
+        data_clean = make(name="dataClean", path="/console/data-clean", hidden=False, parent_id=console.id, sort=7, component="views/Console", title="数据清理", icon="Delete")
+        db.add(data_clean)
+
+        # 控制台 -> 固件中心（从独立根菜单移入 console 子菜单）
+        firmware = make(name="firmware", path="/console/firmware", hidden=False, parent_id=console.id, sort=8, component="views/Console", title="固件中心", icon="Box")
+        db.add(firmware)
+
+        # 控制台 -> 预警事件（从独立根菜单移入 console 子菜单）
+        events = make(name="events", path="/console/events", hidden=False, parent_id=console.id, sort=9, component="views/Console", title="预警事件", icon="Bell")
+        db.add(events)
 
         await db.commit()
         print("Menu seed completed!")

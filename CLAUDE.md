@@ -1,88 +1,100 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 
-## Project Overview
+**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 
-This is **ai-console**, a Vue 3 + TypeScript frontend console application for AI/device management. The project lives in the `ai-console/` subdirectory.
+## 1. Think Before Coding
 
-## Build & Run Commands
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
 
-```bash
-cd ai-console
-npm install        # Install dependencies
-npm run dev        # Start dev server (http://localhost:5173)
-npm run build       # Production build with type checking
-npm run preview    # Preview production build
+Before implementing:
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them - don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
+
+## 2. Simplicity First
+
+**Minimum code that solves the problem. Nothing speculative.**
+
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
+
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+
+## 3. Surgical Changes
+
+**Touch only what you must. Clean up only your own mess.**
+
+When editing existing code:
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it - don't delete it.
+
+When your changes create orphans:
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
+
+The test: Every changed line should trace directly to the user's request.
+
+## 4. Goal-Driven Execution
+
+**Define success criteria. Loop until verified.**
+
+Transform tasks into verifiable goals:
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+For multi-step tasks, state a brief plan:
+```
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
 ```
 
-## Tech Stack
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
-- **Framework**: Vue 3 (Composition API with `<script setup>`)
-- **Language**: TypeScript (strict mode)
-- **Build**: Vite 5
-- **UI Library**: Element Plus 2.6
-- **State**: Pinia 2.1
-- **Router**: Vue Router 4.3
-- **HTTP**: Axios 1.6
+---
 
-## Architecture
+**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
 
-```
-ai-console/src/
-├── components/       # Reusable Vue components
-│   ├── common/       # Generic components (DataTable, Modal, Switch, Tree, Pagination)
-│   └── layout/       # Layout components (Layout, Header, Sidebar, Tabs, Breadcrumb)
-├── views/            # Page components, organized by module
-│   ├── super-admin/  # Menu, Resource, Microservice, UI Customize, License
-│   ├── user-center/  # User, Org, Role, Operation History
-│   ├── device/       # DataSource, Device, DeviceGroup, Region, SyncDevice
-│   │   └── access/   # PlatformList, Gb28181, Onvif
-│   ├── linkage/      # TaskEdit, LinkageRule, PushHistory
-│   ├── algorithm/    # AlgorithmManage, EventManage, AlgorithmService
-│   └── system/       # VideoSetting, FileManager, HelpCenter, PopupSetting, DisposeTag
-├── mock/             # Mock data files mirroring view structure
-├── router/           # Vue Router configuration (lazy-loaded routes)
-├── stores/           # Pinia stores (currently: tabs store)
-└── styles/           # Global CSS and Element Plus overrides
-```
+## 5. Post-Implementation Checklist
 
-## Key Patterns
+After completing any change, review the diff and answer:
 
-### Route Structure
-- Routes are lazy-loaded via dynamic imports
-- All views are nested under `/layout` with a common `Layout.vue` wrapper
-- Default redirect: `/` → `/layout/super-admin/menu-manage`
+1. **Scope control** — Did the change stay within the requested scope, or did it touch unrelated files?
+2. **File boundaries** — Were any files modified that should not have been touched?
+3. **Compatibility** — Are interfaces and data structures backward-compatible?
+4. **Error handling** — Are edge cases and abnormal states handled properly?
+5. **Maintainability** — Was any hard-to-maintain duplicated logic introduced?
+6. **Code hygiene** — Is there dead code, hardcoded values, or leftover debug output?
 
-### Component Naming
-- PascalCase for Vue components (e.g., `DataTable.vue`, `LinkageRule.vue`)
-- kebab-case for file names
+---
 
-### Mock Data
-- Each view has a corresponding mock file in `src/mock/` that mirrors the directory structure
-- Mock data uses JavaScript (`.js`) files
-- `src/mock/index.js` aggregates all mocks
+## Project State (ai-console)
 
-## Visual QA Reference
+### Mock Data Cleanup
+- All `.js` mock files under `ai-console/src/mock/` have been deleted.
+- Inline hardcoded `ref([...])` mock data removed from Vue views:
+  - `Events.vue`, `DataClean.vue`, `Firmware.vue`, and others.
 
-Reference screenshots are stored in `photo/`. The canonical source of truth for UI validation is `docs/screenshot-source-truth.md`.
+### Database Seeds
+- **Menus**: `scripts/seed_menus.py` inserts 42 menu records matching frontend routes.
+- **Resources**: `scripts/seed_resources.py` dynamically extracts all FastAPI routes (`app.routes`) and inserts 191 permission records grouped by `resource_group` + `service_code`.
 
-### UI Alignment Standards (`AI_CONSOLE/UI_STANDARDS.md`)
-- **A (Must Fix)**: Functional contradictions that prevent user operations
-- **B (Should Fix)**: Visual semantics errors (colors, button types, hierarchy)
-- **C (Consider Fix)**: Pure visual deviations (color values, spacing, font size)
-- **D (Optional)**: Pixel-level differences
+### Ports & URLs
+- Frontend dev server: `http://localhost:5173` (Vite)
+- Backend: `http://127.0.0.1:8000`
+- Vite proxy (`vite.config.ts`): `/api` → `http://127.0.0.1:8080` **(mismatch — backend runs on 8000)**
+- Database: PostgreSQL on port `5434`
 
-## Path Aliases
-
-```typescript
-// In tsconfig.json and vite.config.ts:
-'@/' maps to 'ai-console/src/'
-```
-
-## Element Plus Dark Mode
-
-The app uses Element Plus with dark CSS variables enabled:
-```typescript
-import 'element-plus/theme-chalk/dark/css-vars.css'
-```
+### Environment
+- Conda env: `llm_deng`
+- Python path: `/home/daxiong/tool/miniconda3/envs/llm_deng/bin/python`
+- Run seeds with: `DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:5434/ai_console" python scripts/seed_xxx.py`

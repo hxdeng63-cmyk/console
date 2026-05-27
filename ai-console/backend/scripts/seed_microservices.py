@@ -1,8 +1,9 @@
 import asyncio
 import sys
-sys.path.insert(0, r"E:\python\code\console\ai-console\backend")
-
+from pathlib import Path
 from datetime import datetime
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 

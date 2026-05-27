@@ -382,6 +382,15 @@ declare module '@/api/microservices' {
   export const deleteMicroservice: (id: any) => Promise<any>
 }
 
+declare module '@/api/ui-themes' {
+  export const getUIThemes: (params?: any) => Promise<any>
+  export const getUITheme: (id: any) => Promise<any>
+  export const createUITheme: (data: any) => Promise<any>
+  export const updateUITheme: (id: any, data: any) => Promise<any>
+  export const deleteUITheme: (id: any) => Promise<any>
+  export const activateUITheme: (id: any) => Promise<any>
+}
+
 declare module '@/api/microservices.js' {
   export const getMicroservices: (params?: any) => Promise<any>
   export const getMicroservice: (id: any) => Promise<any>
