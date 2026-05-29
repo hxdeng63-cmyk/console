@@ -66,7 +66,11 @@
             >
               <span class="event-name">{{ ev.name }}</span>
               <span class="event-desc">{{ ev.description }}</span>
+              <span class="event-pt" v-if="ev.pt_files?.length">
+                <el-tag size="small" type="info">{{ ev.pt_files.length }}个权重文件</el-tag>
+              </span>
               <span class="event-actions">
+                <el-icon class="ev-pt-link" @click.stop="openPTModal(ev)" title="关联权重文件"><Link /></el-icon>
                 <el-icon class="ev-edit" @click.stop="openEventModal('edit', algo, idx)"><Edit /></el-icon>
                 <el-icon class="ev-delete" @click.stop="handleDeleteEvent(algo, idx)"><Delete /></el-icon>
               </span>
@@ -101,18 +105,65 @@
         <el-button type="primary" @click="handleSubmit">确定</el-button>
       </template>
     </el-dialog>
+
+    <!-- PT权重文件关联弹窗 -->
+    <el-dialog
+      v-model="ptDialogVisible"
+      title="关联权重文件"
+      width="500px"
+      :close-on-click-modal="false"
+    >
+      <div class="pt-dialog-content">
+        <div class="pt-current-event">
+          <span class="label">当前事件：</span>
+          <span class="value">{{ currentEvent?.name }}</span>
+        </div>
+        <el-divider />
+        <div class="pt-select-area">
+          <span class="label">选择权重文件：</span>
+          <el-select
+            v-model="selectedPTFiles"
+            multiple
+            placeholder="请选择权重文件"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="pt in ptFileList"
+              :key="pt.id"
+              :label="pt.name"
+              :value="pt.id"
+            >
+              <span>{{ pt.name }}</span>
+              <span style="float: right; color: #8492a6; font-size: 12px">{{ pt.file_path }}</span>
+            </el-option>
+          </el-select>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="ptDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="handlePTSubmit">确定</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Box, Bell, Collection, Edit, Delete } from '@element-plus/icons-vue'
+import { Plus, Box, Bell, Collection, Edit, Delete, Link } from '@element-plus/icons-vue'
 import { getAlgorithms, deleteAlgorithm, createAlgorithm, updateAlgorithm } from '@/api/algorithms'
+import { getPTWeightFiles } from '@/api/pt-weight-files'
 
 interface AlgorithmEvent {
   name: string
   description: string
+  pt_files?: number[]
+}
+
+interface PTWeightFile {
+  id: number
+  name: string
+  file_path: string
 }
 
 interface Algorithm {
@@ -129,7 +180,8 @@ onMounted(async () => {
   loading.value = true
   try {
     const res = await getAlgorithms()
-    tableData.value = res.data || []
+    const data = res.data || res
+    tableData.value = data.items || data || []
   } catch (e) {
     ElMessage.error('获取算法列表失败')
   } finally {
@@ -270,6 +322,34 @@ const handleDelete = async (row: Algorithm) => {
   } catch (e) {
     // user cancelled or API error
   }
+}
+
+// PT权重文件关联
+const ptDialogVisible = ref(false)
+const currentEvent = ref<AlgorithmEvent | null>(null)
+const selectedPTFiles = ref<number[]>([])
+const ptFileList = ref<PTWeightFile[]>([])
+
+const openPTModal = async (event: AlgorithmEvent) => {
+  currentEvent.value = event
+  selectedPTFiles.value = event.pt_files || []
+  ptDialogVisible.value = true
+
+  try {
+    const res = await getPTWeightFiles({ page_size: 100 })
+    const data = res.data || res
+    ptFileList.value = data.items || []
+  } catch (e) {
+    ElMessage.error('获取权重文件列表失败')
+  }
+}
+
+const handlePTSubmit = () => {
+  if (currentEvent.value) {
+    currentEvent.value.pt_files = [...selectedPTFiles.value]
+    ElMessage.success('关联成功')
+  }
+  ptDialogVisible.value = false
 }
 </script>
 
@@ -532,6 +612,53 @@ const handleDelete = async (row: Algorithm) => {
 
 .ev-delete:hover {
   color: #FF4D6D;
+}
+
+.ev-pt-link {
+  color: #FFAA00;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px;
+  transition: color 0.2s;
+}
+
+.ev-pt-link:hover {
+  color: #FFD700;
+}
+
+.event-pt {
+  margin-left: 8px;
+}
+
+.pt-dialog-content {
+  padding: 10px 0;
+}
+
+.pt-current-event {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pt-current-event .label {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 14px;
+}
+
+.pt-current-event .value {
+  color: #00E5FF;
+  font-weight: 600;
+}
+
+.pt-select-area {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pt-select-area .label {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 14px;
 }
 
 /* 空状态 */

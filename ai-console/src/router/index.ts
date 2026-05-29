@@ -225,6 +225,11 @@ const router = createRouter({
           meta: { title: '算法服务' }
         },
         {
+          path: 'algorithm/pt-weight-file',
+          component: () => import('../views/algorithm/PTWeightFile.vue'),
+          meta: { title: '权重文件管理' }
+        },
+        {
           path: 'firmware',
           component: () => import('../views/Firmware.vue'),
           meta: { title: '固件中心' }

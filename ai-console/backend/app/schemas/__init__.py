@@ -593,3 +593,29 @@ class DataSourceResponse(DataSourceBase):
 
     class Config:
         from_attributes = True
+
+
+class PTWeightFileBase(BaseModel):
+    name: str
+    file_path: str
+    description: Optional[str] = None
+
+
+class PTWeightFileCreate(PTWeightFileBase):
+    pass
+
+
+class PTWeightFileUpdate(BaseModel):
+    name: Optional[str] = None
+    file_path: Optional[str] = None
+    description: Optional[str] = None
+
+
+class PTWeightFileResponse(PTWeightFileBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    deleted_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
