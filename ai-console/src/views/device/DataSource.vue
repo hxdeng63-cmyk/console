@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="data-source">
     <!-- 操作栏 -->
     <div class="toolbar">
@@ -46,10 +46,10 @@
         <el-table-column prop="longitude" label="坐标经度" width="85" align="center" />
         <el-table-column prop="latitude" label="坐标纬度" width="85" align="center" />
         <el-table-column prop="dataSourceType" label="数据源类型" width="90" align="center" />
-        <el-table-column prop="region" label="区域" width="80" align="center" />
-        <el-table-column prop="org" label="组织" width="100" align="center">
+        <el-table-column prop="region_name" label="区域" width="80" align="center" />
+        <el-table-column prop="org_name" label="组织" width="100" align="center">
           <template #default="{ row }">
-            <el-link type="primary" :underline="false">{{ row.org }}</el-link>
+            <el-link type="primary" :underline="false">{{ row.org_name || row.org }}</el-link>
           </template>
         </el-table-column>
         <el-table-column prop="remark" label="备注" min-width="100" show-overflow-tooltip />
@@ -105,10 +105,30 @@
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
         <el-row :gutter="20">
           <el-col :span="12">
-            <el-form-item label="名称" prop="name">
-              <el-input v-model="form.name" placeholder="请输入数据源名称" />
+            <el-form-item label="设备" prop="device_id">
+              <el-select
+                v-model="form.device_id"
+                placeholder="请选择设备"
+                style="width: 100%"
+                filterable
+                @change="onDeviceChange"
+              >
+                <el-option
+                  v-for="d in deviceList"
+                  :key="d.id"
+                  :label="d.name"
+                  :value="d.id"
+                />
+              </el-select>
             </el-form-item>
           </el-col>
+          <el-col :span="12">
+            <el-form-item label="名称" prop="name">
+              <el-input v-model="form.name" placeholder="选择设备后自动生成" readonly />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="接入方式" prop="accessType">
               <el-select v-model="form.accessType" placeholder="请选择" style="width: 100%">
@@ -118,6 +138,11 @@
                 <el-option label="GB28181" value="GB28181" />
                 <el-option label="ONVIF" value="ONVIF" />
               </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="数据源类型" prop="dataSourceType">
+              <el-input v-model="form.dataSourceType" placeholder="请输入数据源类型" />
             </el-form-item>
           </el-col>
         </el-row>
@@ -142,28 +167,6 @@
           <el-col :span="12">
             <el-form-item label="坐标纬度" prop="latitude">
               <el-input v-model="form.latitude" placeholder="请输入纬度" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="数据源类型" prop="dataSourceType">
-              <el-input v-model="form.dataSourceType" placeholder="请输入数据源类型" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="区域" prop="region">
-              <el-input v-model="form.region" placeholder="请输入区域" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="组织" prop="org">
-              <el-input v-model="form.org" placeholder="请输入组织" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="设备" prop="device">
-              <el-input v-model="form.device" placeholder="请输入设备" />
             </el-form-item>
           </el-col>
         </el-row>
@@ -234,6 +237,8 @@ import {
   updateDataSource,
   deleteDataSource
 } from '@/api/data-sources'
+import { getDevices } from '@/api/devices'
+import { useRegions } from '@/composables/useRegions'
 
 interface DataSourceItem {
   id: number
@@ -248,11 +253,25 @@ interface DataSourceItem {
   region: string
   org: string
   device: string
-  setting: string
   remark: string
   memoryUsage: number
   diskSize: string
   diskUsage: number
+  device_id?: number
+  region_id?: number
+  org_id?: number
+  device_name?: string
+  region_name?: string
+  org_name?: string
+}
+
+interface DeviceItem {
+  id: number
+  name: string
+  region_id?: number
+  org_id?: number
+  region_name?: string
+  org_name?: string
 }
 
 const searchForm = reactive({
@@ -260,7 +279,10 @@ const searchForm = reactive({
   accessType: ''
 })
 
+const { allRegions, loadRegions } = useRegions()
+
 const tableData = ref<DataSourceItem[]>([])
+const deviceList = ref<DeviceItem[]>([])
 const loading = ref(false)
 
 const currentPage = ref(1)
@@ -317,14 +339,34 @@ const defaultForm = () => ({
   remark: '',
   memoryUsage: 0,
   diskSize: '1TB',
-  diskUsage: 0
+  diskUsage: 0,
+  device_id: null as number | null,
+  region_id: null as number | null,
+  org_id: null as number | null,
 })
 
 const form = reactive(defaultForm())
 
 const rules = {
-  name: [{ required: true, message: '请输入数据源名称', trigger: 'blur' }],
+  device_id: [{ required: true, message: '请选择设备', trigger: 'change' }],
+  name: [{ required: true, message: '名称自动生成', trigger: 'blur' }],
   accessType: [{ required: true, message: '请选择接入方式', trigger: 'change' }]
+}
+
+function onDeviceChange(deviceId: number) {
+  const device = deviceList.value.find(d => d.id === deviceId)
+  if (!device) return
+
+  // 自动填充名称：大区域-小区域-设备名称
+  const region = allRegions.value.find(r => r.id === device.region_id)
+  const parentRegion = region?.parent_id ? allRegions.value.find(r => r.id === region.parent_id) : null
+  const parts = [parentRegion?.name, region?.name, device.name].filter(Boolean)
+  form.name = parts.join('-')
+
+  // 自动填充区域和组织
+  form.device_id = deviceId
+  form.region_id = device.region_id || null
+  form.org_id = device.org_id || null
 }
 
 const openModal = (type: 'add' | 'edit', row?: DataSourceItem) => {
@@ -332,7 +374,26 @@ const openModal = (type: 'add' | 'edit', row?: DataSourceItem) => {
   if (type === 'edit' && row) {
     editingId.value = row.id
     dialogTitle.value = '编辑数据源'
-    Object.assign(form, row)
+    Object.assign(form, {
+      name: row.name,
+      status: row.status,
+      rtspUrl: row.rtspUrl,
+      pushUrl: row.pushUrl,
+      accessType: row.accessType,
+      longitude: row.longitude,
+      latitude: row.latitude,
+      dataSourceType: row.dataSourceType,
+      region: row.region,
+      org: row.org,
+      device: row.device,
+      remark: row.remark,
+      memoryUsage: row.memoryUsage,
+      diskSize: row.diskSize,
+      diskUsage: row.diskUsage,
+      device_id: row.device_id || null,
+      region_id: row.region_id || null,
+      org_id: row.org_id || null,
+    })
   } else {
     editingId.value = null
     dialogTitle.value = '新增数据源'
@@ -340,11 +401,39 @@ const openModal = (type: 'add' | 'edit', row?: DataSourceItem) => {
   dialogVisible.value = true
 }
 
+function mapItem(item: any): DataSourceItem {
+  return {
+    id: item.id,
+    name: item.name,
+    status: item.status,
+    rtspUrl: item.rtsp_url || '',
+    pushUrl: item.push_url || '',
+    accessType: item.access_type || '',
+    longitude: item.longitude || '',
+    latitude: item.latitude || '',
+    dataSourceType: item.data_source_type || '',
+    region: item.region || '',
+    org: item.org || '',
+    device: item.device || '',
+    remark: item.remark || '',
+    memoryUsage: item.memory_usage || 0,
+    diskSize: item.disk_size || '',
+    diskUsage: item.disk_usage || 0,
+    device_id: item.device_id,
+    region_id: item.region_id,
+    org_id: item.org_id,
+    device_name: item.device_name,
+    region_name: item.region_name,
+    org_name: item.org_name,
+  }
+}
+
 const fetchData = async () => {
   loading.value = true
   try {
     const res = await getDataSources()
-    tableData.value = res.data || []
+    const items = res.data?.items || res.items || []
+    tableData.value = items.map(mapItem)
   } catch (err) {
     ElMessage.error('获取数据源列表失败')
   } finally {
@@ -352,16 +441,46 @@ const fetchData = async () => {
   }
 }
 
+const fetchDevices = async () => {
+  try {
+    const res = await getDevices({ page_size: 100 })
+    deviceList.value = res.data?.items || res.items || []
+  } catch (err) {
+    console.error('获取设备列表失败:', err)
+  }
+}
+
 const handleSubmit = async () => {
   const valid = await (formRef.value as any).validate().catch(() => false)
   if (!valid) return
 
+  const payload = {
+    name: form.name,
+    status: form.status,
+    rtsp_url: form.rtspUrl,
+    push_url: form.pushUrl,
+    access_type: form.accessType,
+    longitude: form.longitude,
+    latitude: form.latitude,
+    data_source_type: form.dataSourceType,
+    region: form.region,
+    org: form.org,
+    device: form.device,
+    remark: form.remark,
+    memory_usage: form.memoryUsage,
+    disk_size: form.diskSize,
+    disk_usage: form.diskUsage,
+    device_id: form.device_id,
+    region_id: form.region_id,
+    org_id: form.org_id,
+  }
+
   try {
     if (editingId.value) {
-      await updateDataSource(editingId.value, form)
+      await updateDataSource(editingId.value, payload)
       ElMessage.success('编辑成功')
     } else {
-      await createDataSource(form)
+      await createDataSource(payload)
       ElMessage.success('新增成功')
     }
     dialogVisible.value = false
@@ -386,7 +505,9 @@ const handleDelete = (row: DataSourceItem) => {
 }
 
 onMounted(() => {
+  loadRegions()
   fetchData()
+  fetchDevices()
 })
 </script>
 
@@ -470,7 +591,6 @@ onMounted(() => {
   gap: 8px;
 }
 
-/* 操作按钮 - 编辑（青色） */
 .action-edit {
   background: rgba(0, 229, 255, 0.15) !important;
   border: 1px solid rgba(0, 229, 255, 0.4) !important;
@@ -507,7 +627,6 @@ onMounted(() => {
   box-shadow: 0 0 12px rgba(255, 0, 110, 0.3);
 }
 
-/* 使用率进度条 */
 .usage-bar {
   display: flex;
   align-items: center;
@@ -536,4 +655,3 @@ onMounted(() => {
   text-align: right;
 }
 </style>
-

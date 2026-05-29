@@ -3,7 +3,6 @@ from app.schemas.request.device import (
     DeviceResponse,
     DeviceGroupRequest,
     DeviceGroupResponse,
-    DeviceGroupTreeResponse,
 )
 from app.schemas.request.device_stream import (
     DeviceStreamRequest,
@@ -43,7 +42,6 @@ __all__ = [
     "DeviceResponse",
     "DeviceGroupRequest",
     "DeviceGroupResponse",
-    "DeviceGroupTreeResponse",
     "DeviceStreamRequest",
     "DeviceStreamResponse",
     "RegionRequest",

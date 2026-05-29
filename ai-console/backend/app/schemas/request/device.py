@@ -47,7 +47,7 @@ class DeviceGroupRequest(BaseModel):
     name: str
     device_count: int = 0
     remark: Optional[str] = None
-    parent_id: Optional[int] = None
+    region_id: Optional[int] = None
 
 
 class DeviceGroupResponse(BaseModel):
@@ -58,19 +58,9 @@ class DeviceGroupResponse(BaseModel):
     name: str
     device_count: int
     remark: Optional[str]
-    parent_id: Optional[int]
+    region_id: Optional[int]
     created_at: datetime
     updated_at: datetime
     deleted_at: Optional[datetime]
 
 
-class DeviceGroupTreeResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    group_code: Optional[str]
-    name: str
-    device_count: int
-    remark: Optional[str]
-    parent_id: Optional[int]
-    children: list["DeviceGroupTreeResponse"] = []

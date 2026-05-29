@@ -4,13 +4,10 @@
     <div class="toolbar">
       <div class="left-area">
         <el-select v-model="searchForm.companyName" placeholder="公司名称" style="width: 130px" clearable>
-          <el-option label="海东分公司" value="海东分公司" />
-          <el-option label="西宁分公司" value="西宁分公司" />
+          <el-option v-for="c in companies" :key="c.id" :label="c.name" :value="c.name" />
         </el-select>
         <el-select v-model="searchForm.regionName" placeholder="区域" style="width: 100px" clearable>
-          <el-option label="S201" value="S201" />
-          <el-option label="G6" value="G6" />
-          <el-option label="G213" value="G213" />
+          <el-option v-for="r in level1Regions" :key="r.id" :label="r.name" :value="r.name" />
         </el-select>
         <el-select v-model="searchForm.algorithmName" placeholder="算法" style="width: 120px" clearable>
           <el-option label="交通算法" value="交通算法" />
@@ -279,9 +276,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive } from 'vue'
+import { ref, computed, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
+import { useRegions } from '@/composables/useRegions'
 
 interface EventItem {
   id: number
@@ -333,6 +331,11 @@ const searchForm = reactive({
 const viewMode = ref('list')
 const currentPage = ref(1)
 const pageSize = ref(10)
+
+const { companies, level1Regions, loadRegions } = useRegions()
+onMounted(() => {
+  loadRegions()
+})
 
 // 详情弹窗
 const detailDialogVisible = ref(false)

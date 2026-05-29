@@ -11,9 +11,6 @@
             </el-button>
           </div>
         </div>
-        <div class="tree-add">
-          <el-button type="primary" size="small" @click="onAddCompany">+ 添加公司</el-button>
-        </div>
         <div class="tree-body" v-loading="loading">
           <el-tree
             ref="treeRef"
@@ -33,7 +30,7 @@
                   <span v-if="data.deviceCount !== undefined" class="device-count">({{ data.deviceCount }}台)</span>
                 </span>
                 <span class="node-actions">
-                  <el-button v-if="data.isCompany" link class="tree-btn" @click.stop="handleAddRegion(data)">
+                  <el-button v-if="!data.isRegion || data.level === 1" link class="tree-btn" @click.stop="handleAdd(data)">
                     <el-icon><Plus /></el-icon>
                   </el-button>
                   <el-button link class="tree-btn" @click.stop="handleEdit(data)">
@@ -92,22 +89,21 @@
       :close-on-click-modal="false"
     >
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
-        <el-form-item label="类型" prop="type">
-          <el-radio-group v-model="form.type" :disabled="isEditing">
-            <el-radio value="company">公司</el-radio>
-            <el-radio value="region">区域</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item v-if="form.type === 'region'" label="所属公司" prop="parentId">
-          <el-select v-model="form.parentId" placeholder="请选择所属公司" style="width: 100%">
-            <el-option v-for="c in companyList" :key="c.id" :label="c.name" :value="c.id" />
-          </el-select>
-        </el-form-item>
         <el-form-item label="名称" prop="name">
           <el-input v-model="form.name" placeholder="请输入名称" />
         </el-form-item>
-        <el-form-item v-if="form.type === 'region'" label="编码">
+        <el-form-item label="编码">
           <el-input v-model="form.code" placeholder="请输入编码，如 S201" />
+        </el-form-item>
+        <el-form-item label="所属公司" prop="orgId">
+          <el-select v-model="form.orgId" placeholder="请选择所属公司" style="width: 100%">
+            <el-option v-for="c in companyList" :key="c.id" :label="c.name" :value="c.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="上级区域">
+          <el-select v-model="form.parentId" placeholder="不选则为一级区域" clearable style="width: 100%">
+            <el-option v-for="r in level1RegionList" :key="r.id" :label="r.name" :value="r.id" />
+          </el-select>
         </el-form-item>
         <el-form-item label="备注">
           <el-input v-model="form.remark" type="textarea" placeholder="请输入备注" :rows="3" />
@@ -136,6 +132,7 @@ import {
   OfficeBuilding,
   Location
 } from '@element-plus/icons-vue'
+import { getFullRegionTree, createRegion, updateRegion, deleteRegion } from '@/api/regions'
 
 interface RegionNode {
   id: number
@@ -146,49 +143,57 @@ interface RegionNode {
   deviceCount?: number
   isCompany?: boolean
   isRegion?: boolean
+  level?: number
+  orgId?: number
+  parentId?: number
   children?: RegionNode[]
 }
-
-// 与 DeviceGroup.vue 数据对齐：海东分公司 / 西宁分公司 → S201 / G213
-const regionTreeData: RegionNode[] = [
-  {
-    id: 1,
-    name: '海东分公司',
-    isCompany: true,
-    remark: '海东地区管辖',
-    sortOrder: 1,
-    deviceCount: 7,
-    children: [
-      { id: 11, name: 'S201', isRegion: true, code: 'S201', remark: '省道201沿线', sortOrder: 1, deviceCount: 3 },
-      { id: 12, name: 'G213', isRegion: true, code: 'G213', remark: '国道213沿线', sortOrder: 2, deviceCount: 4 }
-    ]
-  },
-  {
-    id: 2,
-    name: '西宁分公司',
-    isCompany: true,
-    remark: '西宁地区管辖',
-    sortOrder: 2,
-    deviceCount: 5,
-    children: [
-      { id: 21, name: 'S201', isRegion: true, code: 'S201', remark: '省道201沿线', sortOrder: 1, deviceCount: 2 },
-      { id: 22, name: 'G213', isRegion: true, code: 'G213', remark: '国道213沿线', sortOrder: 2, deviceCount: 3 }
-    ]
-  }
-]
 
 const treeRef = ref<InstanceType<typeof ElTree>>()
 const loading = ref(false)
 const treeData = ref<RegionNode[]>([])
 
-onMounted(async () => {
-  loading.value = true
-  await new Promise(r => setTimeout(r, 200))
-  treeData.value = JSON.parse(JSON.stringify(regionTreeData))
-  loading.value = false
-})
+const sumDevices = (nodes: RegionNode[]): number => {
+  return nodes.reduce((sum, n) => sum + (n.deviceCount || 0), 0)
+}
 
-let nextId = 100
+const mapApiNode = (node: any): RegionNode => {
+  const children = node.children?.map(mapApiNode)
+  const mapped: RegionNode = {
+    id: node.id,
+    name: node.name,
+    code: node.code,
+    remark: node.remark,
+    sortOrder: node.sort,
+    deviceCount: node.device_count ?? 0,
+    isCompany: node.isCompany,
+    isRegion: node.isRegion,
+    level: node.level,
+    orgId: node.org_id,
+    parentId: node.parent_id,
+    children
+  }
+  if (node.isCompany && children) {
+    mapped.deviceCount = sumDevices(children)
+  }
+  return mapped
+}
+
+const loadTreeData = async () => {
+  loading.value = true
+  try {
+    const res = await getFullRegionTree()
+    treeData.value = (res || []).map(mapApiNode)
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || '加载区域数据失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(() => {
+  loadTreeData()
+})
 
 const selectedNode = ref<RegionNode | null>(null)
 const detailForm = reactive({
@@ -198,17 +203,18 @@ const detailForm = reactive({
   name: '',
   code: '',
   remark: '',
-  sortOrder: 0
+  sortOrder: 0,
+  orgId: undefined as number | undefined
 })
 
 const dialogVisible = ref(false)
-const dialogTitle = ref('新增公司')
+const dialogTitle = ref('添加区域')
 const formRef = ref()
 const editingNode = ref<RegionNode | null>(null)
 const isEditing = ref(false)
 
 const form = reactive({
-  type: 'company' as 'company' | 'region',
+  orgId: undefined as number | undefined,
   parentId: undefined as number | undefined,
   name: '',
   code: '',
@@ -217,14 +223,33 @@ const form = reactive({
 })
 
 const rules = {
-  type: [{ required: true, message: '请选择类型', trigger: 'change' }],
-  parentId: [{ required: true, message: '请选择所属公司', trigger: 'change' }],
   name: [{ required: true, message: '请输入名称', trigger: 'blur' }]
 }
 
-const companyList = computed(() => {
-  return treeData.value.filter(n => n.isCompany)
+const companyList = computed(() => treeData.value.filter(n => n.isCompany))
+
+const level1RegionList = computed(() => {
+  const regions: RegionNode[] = []
+  const collect = (nodes: RegionNode[]) => {
+    for (const node of nodes) {
+      if (node.isRegion && node.level === 1) regions.push(node)
+      if (node.children) collect(node.children)
+    }
+  }
+  collect(treeData.value)
+  return regions
 })
+
+const getParentName = (nodeId: number, nodes: RegionNode[] = treeData.value): string | null => {
+  for (const node of nodes) {
+    if (node.children?.some(child => child.id === nodeId)) return node.name
+    if (node.children) {
+      const found = getParentName(nodeId, node.children)
+      if (found) return found
+    }
+  }
+  return null
+}
 
 const onNodeClick = (data: RegionNode) => {
   selectedNode.value = data
@@ -235,44 +260,25 @@ const onNodeClick = (data: RegionNode) => {
   detailForm.code = data.code || ''
   detailForm.remark = data.remark || ''
   detailForm.sortOrder = data.sortOrder || 0
+  detailForm.orgId = data.orgId
 }
 
-const getParentName = (nodeId: number): string | null => {
-  for (const node of treeData.value) {
-    if (node.children?.some(child => child.id === nodeId)) {
-      return node.name
-    }
-  }
-  return null
-}
-
-const onRefresh = async () => {
-  loading.value = true
-  await new Promise(r => setTimeout(r, 200))
-  treeData.value = JSON.parse(JSON.stringify(regionTreeData))
-  loading.value = false
+const onRefresh = () => {
+  loadTreeData()
   ElMessage.success('刷新成功')
 }
 
-const onAddCompany = () => {
+const handleAdd = (data: RegionNode) => {
   editingNode.value = null
   isEditing.value = false
-  dialogTitle.value = '新增公司'
-  form.type = 'company'
-  form.parentId = undefined
-  form.name = ''
-  form.code = ''
-  form.remark = ''
-  form.sortOrder = 0
-  dialogVisible.value = true
-}
-
-const handleAddRegion = (data: RegionNode) => {
-  editingNode.value = null
-  isEditing.value = false
-  dialogTitle.value = '新增区域'
-  form.type = 'region'
-  form.parentId = data.id
+  dialogTitle.value = data.isCompany ? '添加区域' : '添加子区域'
+  if (data.isCompany) {
+    form.orgId = data.id
+    form.parentId = undefined
+  } else {
+    form.orgId = data.orgId
+    form.parentId = data.id
+  }
   form.name = ''
   form.code = ''
   form.remark = ''
@@ -281,137 +287,92 @@ const handleAddRegion = (data: RegionNode) => {
 }
 
 const handleEdit = (data: RegionNode) => {
+  if (data.isCompany) {
+    ElMessage.warning('公司信息请在组织架构管理中修改')
+    return
+  }
   editingNode.value = data
   isEditing.value = true
-  dialogTitle.value = data.isCompany ? '编辑公司' : '编辑区域'
-  form.type = data.isCompany ? 'company' : 'region'
-  if (!data.isCompany) {
-    const parent = treeData.value.find(n => n.children?.some(c => c.id === data.id))
-    form.parentId = parent?.id
-  }
+  dialogTitle.value = '编辑区域'
   form.name = data.name
   form.code = data.code || ''
   form.remark = data.remark || ''
   form.sortOrder = data.sortOrder || 0
+  form.orgId = data.orgId
+  form.parentId = data.parentId
   dialogVisible.value = true
 }
 
-const handleDelete = (data: RegionNode) => {
-  const typeText = data.isCompany ? '公司' : '区域'
-  const warnText = data.isCompany && data.children?.length
-    ? `，旗下 ${data.children.length} 个区域将一并删除`
-    : ''
-  ElMessageBox.confirm(`确定删除${typeText} "${data.name}" 吗？${warnText}`, '提示', { type: 'warning' })
-    .then(() => {
-      const removeNode = (nodes: RegionNode[], id: number): boolean => {
-        const index = nodes.findIndex(n => n.id === id)
-        if (index !== -1) {
-          nodes.splice(index, 1)
-          return true
-        }
-        for (const node of nodes) {
-          if (node.children && removeNode(node.children, id)) {
-            return true
-          }
-        }
-        return false
-      }
-      removeNode(treeData.value, data.id)
-      if (selectedNode.value?.id === data.id) {
-        selectedNode.value = null
-      }
-      ElMessage.success('删除成功')
-    })
-    .catch(() => {})
+const handleDelete = async (data: RegionNode) => {
+  if (data.isCompany) {
+    ElMessage.warning('公司请在组织架构管理中删除')
+    return
+  }
+  const warnText = data.children?.length ? `，其下 ${data.children.length} 个子区域将一并被处理` : ''
+  try {
+    await ElMessageBox.confirm(`确定删除区域 "${data.name}" 吗？${warnText}`, '提示', { type: 'warning' })
+    await deleteRegion(data.id)
+    ElMessage.success('删除成功')
+    await loadTreeData()
+    if (selectedNode.value?.id === data.id) selectedNode.value = null
+  } catch (error: any) {
+    if (error !== 'cancel') {
+      ElMessage.error(error.response?.data?.detail || '删除失败')
+    }
+  }
 }
 
 const handleConfirm = async () => {
   const valid = await (formRef.value as any)?.validate().catch(() => false)
   if (!valid) return
-
-  if (form.type === 'region' && form.parentId) {
-    // 添加/编辑区域
-    const targetCompany = treeData.value.find(n => n.id === form.parentId)
-    if (!targetCompany) {
-      ElMessage.error('所属公司不存在')
-      return
-    }
-    if (!targetCompany.children) targetCompany.children = []
-
-    if (editingNode.value) {
-      // 编辑：如果换了公司，需要移动
-      const oldParent = treeData.value.find(n => n.children?.some(c => c.id === editingNode.value!.id))
-      if (oldParent && oldParent.id !== form.parentId) {
-        // 从旧公司移除
-        const idx = oldParent.children!.findIndex(c => c.id === editingNode.value!.id)
-        if (idx !== -1) oldParent.children!.splice(idx, 1)
-        // 添加到新公司
-        targetCompany.children.push({
-          id: editingNode.value.id,
-          name: form.name,
-          isRegion: true,
-          code: form.code,
-          remark: form.remark,
-          sortOrder: form.sortOrder,
-          deviceCount: editingNode.value.deviceCount || 0
-        })
-      } else {
-        // 同一家公司内更新
-        const child = targetCompany.children.find(c => c.id === editingNode.value!.id)
-        if (child) {
-          child.name = form.name
-          child.code = form.code
-          child.remark = form.remark
-          child.sortOrder = form.sortOrder
-        }
-      }
-      ElMessage.success('保存成功')
-    } else {
-      // 新增区域
-      targetCompany.children.push({
-        id: nextId++,
-        name: form.name,
-        isRegion: true,
-        code: form.code,
-        remark: form.remark,
-        sortOrder: form.sortOrder,
-        deviceCount: 0
-      })
-      // 更新公司设备数统计（简化：新增区域默认0台）
-      ElMessage.success('添加成功')
-    }
-  } else {
-    // 添加/编辑公司
-    if (editingNode.value) {
-      editingNode.value.name = form.name
-      editingNode.value.remark = form.remark
-      editingNode.value.sortOrder = form.sortOrder
-      ElMessage.success('保存成功')
-    } else {
-      treeData.value.push({
-        id: nextId++,
-        name: form.name,
-        isCompany: true,
-        remark: form.remark,
-        sortOrder: form.sortOrder,
-        deviceCount: 0,
-        children: []
-      })
-      ElMessage.success('添加成功')
-    }
+  if (!form.parentId && !form.orgId) {
+    ElMessage.error('一级区域必须选择所属公司')
+    return
   }
-  dialogVisible.value = false
+  const payload = {
+    name: form.name,
+    code: form.code || null,
+    remark: form.remark || null,
+    sort: form.sortOrder,
+    org_id: form.orgId || null,
+    parent_id: form.parentId || null
+  }
+  try {
+    if (isEditing.value && editingNode.value) {
+      await updateRegion(editingNode.value.id, payload)
+      ElMessage.success('保存成功')
+    } else {
+      await createRegion(payload)
+      ElMessage.success('添加成功')
+    }
+    dialogVisible.value = false
+    await loadTreeData()
+    selectedNode.value = null
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || '操作失败')
+  }
 }
 
 const handleSave = async () => {
-  if (selectedNode.value) {
-    selectedNode.value.name = detailForm.name
-    if (!selectedNode.value.isCompany) {
-      selectedNode.value.code = detailForm.code
-    }
-    selectedNode.value.remark = detailForm.remark
-    selectedNode.value.sortOrder = detailForm.sortOrder
+  if (!selectedNode.value) return
+  if (selectedNode.value.isCompany) {
+    ElMessage.warning('公司信息请在组织架构管理中修改')
+    return
+  }
+  const payload = {
+    name: detailForm.name,
+    code: detailForm.code || null,
+    remark: detailForm.remark || null,
+    sort: detailForm.sortOrder,
+    org_id: selectedNode.value.orgId || null,
+    parent_id: selectedNode.value.parentId || null
+  }
+  try {
+    await updateRegion(selectedNode.value.id, payload)
     ElMessage.success('保存成功')
+    await loadTreeData()
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || '保存失败')
   }
 }
 </script>
@@ -454,18 +415,6 @@ const handleSave = async () => {
 
 .header-actions :deep(.el-button) {
   padding: 4px 8px;
-}
-
-.tree-add {
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.tree-add :deep(.el-button) {
-  width: 100%;
-  background: #00E5FF;
-  border-color: #00E5FF;
-  color: #001a2e;
 }
 
 .tree-body {

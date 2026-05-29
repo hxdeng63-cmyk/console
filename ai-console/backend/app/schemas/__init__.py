@@ -552,6 +552,9 @@ class DataSourceBase(BaseModel):
     memory_usage: Optional[int] = None
     disk_size: Optional[str] = None
     disk_usage: Optional[int] = None
+    device_id: Optional[int] = None
+    region_id: Optional[int] = None
+    org_id: Optional[int] = None
 
 
 class DataSourceCreate(DataSourceBase):
@@ -574,6 +577,9 @@ class DataSourceUpdate(BaseModel):
     memory_usage: Optional[int] = None
     disk_size: Optional[str] = None
     disk_usage: Optional[int] = None
+    device_id: Optional[int] = None
+    region_id: Optional[int] = None
+    org_id: Optional[int] = None
 
 
 class DataSourceResponse(DataSourceBase):
@@ -581,6 +587,9 @@ class DataSourceResponse(DataSourceBase):
     created_at: datetime
     updated_at: datetime
     deleted_at: Optional[datetime] = None
+    device_name: Optional[str] = None
+    region_name: Optional[str] = None
+    org_name: Optional[str] = None
 
     class Config:
         from_attributes = True

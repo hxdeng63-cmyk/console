@@ -11,8 +11,8 @@ class DeviceGroup(BaseModel):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     device_count: Mapped[int] = mapped_column(default=0)
     remark: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    parent_id: Mapped[int | None] = mapped_column(ForeignKey("device_group.id"), nullable=True)
+    region_id: Mapped[int | None] = mapped_column(ForeignKey("region.id"), nullable=True)
 
     __table_args__ = (
-        Index("idx_device_group_parent", "parent_id"),
+        Index("idx_device_group_region", "region_id"),
     )

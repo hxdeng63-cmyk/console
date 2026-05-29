@@ -92,9 +92,9 @@ After completing any change, review the diff and answer:
 - **Users & Orgs**: `scripts/seed_users_orgs.py` inserts 1 company + 4 departments + 5 users. Backend User model extended with `role` + `employee_id` fields; frontend org selector now uses el-select dropdown.
 
 ### Ports & URLs
-- Frontend dev server: `http://localhost:5173` (Vite)
-- Backend: `http://127.0.0.1:8000`
-- Vite proxy (`vite.config.ts`): `/api` → `http://127.0.0.1:8080` **(mismatch — backend runs on 8000)**
+- Frontend dev server: `http://localhost:5173` (Vite) — **固定端口 5173**
+- Backend: `http://127.0.0.1:8090` — **固定端口 8090**
+- Vite proxy (`vite.config.ts`): `/api` → `http://127.0.0.1:8090`
 - Database: PostgreSQL on port `5434`
 
 ### Environment

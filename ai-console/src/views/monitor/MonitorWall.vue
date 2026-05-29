@@ -218,7 +218,13 @@ import type { DeviceNode } from '@/components/device-tree/useDeviceTree'
 
 const selectedChannel = ref('device-4')
 const eventFilter = ref('all')
-const deploymentInfo = ref('海东分公司(84路)')
+const deploymentInfo = computed(() => {
+  const totalDevices = deviceTreeData.value.reduce((sum, org) => {
+    return sum + (org.children?.reduce((s, group) => s + (group.children?.length || 0), 0) || 0)
+  }, 0)
+  const firstOrg = deviceTreeData.value[0]
+  return firstOrg ? `${firstOrg.name}(${totalDevices}路)` : '暂无设备'
+})
 
 const deviceTreeData = ref<DeviceNode[]>([])
 const alarmList = ref<any[]>([])

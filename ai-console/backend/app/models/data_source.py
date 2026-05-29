@@ -1,4 +1,4 @@
-from sqlalchemy import String, Integer
+from sqlalchemy import String, Integer, ForeignKey, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import BaseModel
@@ -22,3 +22,12 @@ class DataSource(BaseModel):
     memory_usage: Mapped[int | None] = mapped_column(Integer, nullable=True)
     disk_size: Mapped[str | None] = mapped_column(String(20), nullable=True)
     disk_usage: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    device_id: Mapped[int | None] = mapped_column(ForeignKey("device.id"), nullable=True)
+    region_id: Mapped[int | None] = mapped_column(ForeignKey("region.id"), nullable=True)
+    org_id: Mapped[int | None] = mapped_column(ForeignKey("organization.id"), nullable=True)
+
+    __table_args__ = (
+        Index("idx_data_source_device", "device_id"),
+        Index("idx_data_source_region", "region_id"),
+        Index("idx_data_source_org", "org_id"),
+    )

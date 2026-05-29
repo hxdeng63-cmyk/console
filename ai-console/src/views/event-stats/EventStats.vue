@@ -4,12 +4,10 @@
     <div class="filter-panel">
       <div class="filter-row">
         <el-select v-model="filterForm.company" placeholder="选择公司" size="default" clearable>
-          <el-option label="海东分公司" value="海东分公司" />
-          <el-option label="西宁分公司" value="西宁分公司" />
+          <el-option v-for="c in companies" :key="c.id" :label="c.name" :value="c.name" />
         </el-select>
         <el-select v-model="filterForm.region" placeholder="选择区域" size="default" clearable>
-          <el-option label="S201" value="S201" />
-          <el-option label="G213" value="G213" />
+          <el-option v-for="r in level1Regions" :key="r.id" :label="r.name" :value="r.name" />
         </el-select>
         <el-date-picker v-model="filterForm.startDate" type="date" placeholder="开始日期" size="default" />
         <el-date-picker v-model="filterForm.endDate" type="date" placeholder="结束日期" size="default" />
@@ -112,6 +110,7 @@ import { BarChart, PieChart, LineChart, GaugeChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent, DataZoomComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { getSceneStats, getEventStats } from '@/api/event-stats'
+import { useRegions } from '@/composables/useRegions'
 
 echarts.use([BarChart, PieChart, LineChart, GaugeChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, CanvasRenderer])
 
@@ -125,6 +124,8 @@ const filterForm = reactive({
   algorithmType: 'traffic',
   trendDimension: 'day'
 })
+
+const { companies, level1Regions, loadRegions } = useRegions()
 
 // Reactive state for API data
 const sceneCategories = ref<string[]>([])
@@ -494,6 +495,7 @@ const resizeCharts = () => {
 }
 
 onMounted(async () => {
+  await loadRegions()
   await Promise.all([fetchSceneStats(), fetchTrendData()])
   initTodayChart()
   initLeftChart()
