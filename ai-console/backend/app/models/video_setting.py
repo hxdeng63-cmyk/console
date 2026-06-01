@@ -12,6 +12,7 @@ class VideoSetting(BaseModel):
 
     org_id: Mapped[int] = mapped_column(ForeignKey("organization.id"), nullable=False)
     event_types: Mapped[dict | None] = mapped_column(JSONB, default=list, nullable=True)
+    device_ids: Mapped[dict | None] = mapped_column(JSONB, default=list, nullable=True)
     record_duration_seconds: Mapped[int] = mapped_column(default=10)
     status: Mapped[bool] = mapped_column(Boolean, default=True)
 

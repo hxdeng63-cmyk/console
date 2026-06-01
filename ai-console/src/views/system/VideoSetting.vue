@@ -12,7 +12,20 @@
 
     <!-- 表格 -->
     <el-table :data="pagedData" border stripe v-loading="loading">
-      <el-table-column prop="org_name" label="规则名称（公司）" min-width="200" show-overflow-tooltip />
+      <el-table-column prop="org_name" label="规则名称（公司）" min-width="150" show-overflow-tooltip />
+      <el-table-column label="设备" min-width="200">
+        <template #default="{ row }">
+          <el-tag
+            v-for="name in (row.device_names || [])"
+            :key="name"
+            size="small"
+            style="margin-right: 4px;"
+          >
+            {{ name }}
+          </el-tag>
+          <span v-if="!row.device_names?.length" style="color: rgba(255,255,255,0.4)">-</span>
+        </template>
+      </el-table-column>
       <el-table-column label="事件" min-width="300">
         <template #default="{ row }">
           <el-tag
@@ -69,12 +82,27 @@
     >
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
         <el-form-item label="公司" prop="org_id">
-          <el-select v-model="form.org_id" placeholder="请选择公司" style="width: 100%">
+          <el-select v-model="form.org_id" placeholder="请选择公司" style="width: 100%" @change="onCompanyChange">
             <el-option
               v-for="org in orgList"
               :key="org.id"
               :label="org.name"
               :value="org.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="设备选择" prop="device_ids">
+          <el-select
+            v-model="form.device_ids"
+            multiple
+            placeholder="请选择设备"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="device in filteredDeviceList"
+              :key="device.id"
+              :label="device.name"
+              :value="device.id"
             />
           </el-select>
         </el-form-item>
@@ -120,12 +148,15 @@ import {
 } from '@/api/video-settings'
 import { getEventTypes } from '@/api/event-types'
 import { getOrgs } from '@/api/orgs'
+import { getDevices } from '@/api/devices'
 
 interface VideoSettingItem {
   id: number
   org_id: number
   org_name: string
   event_types: number[]
+  device_ids: number[]
+  device_names: string[]
   record_duration_seconds: number
   status: boolean
 }
@@ -140,11 +171,27 @@ interface OrgItem {
   name: string
 }
 
+interface DeviceItem {
+  id: number
+  name: string
+  org_id: number
+}
+
 const tableData = ref<VideoSettingItem[]>([])
 const eventTypeList = ref<EventTypeItem[]>([])
 const orgList = ref<OrgItem[]>([])
+const deviceList = ref<DeviceItem[]>([])
 const loading = ref(false)
 const total = ref(0)
+
+const filteredDeviceList = computed(() => {
+  if (!form.org_id) return []
+  return deviceList.value.filter(d => d.org_id === form.org_id)
+})
+
+const onCompanyChange = () => {
+  form.device_ids = []
+}
 
 const currentPage = ref(1)
 const pageSize = ref(10)
@@ -176,6 +223,7 @@ const editingId = ref<number | null>(null)
 
 const defaultForm = () => ({
   org_id: null as number | null,
+  device_ids: [] as number[],
   event_types: [] as number[],
   record_duration_seconds: 10
 })
@@ -194,6 +242,7 @@ const openModal = (type: 'add' | 'edit', row?: VideoSettingItem) => {
     dialogTitle.value = '修改录像设置'
     Object.assign(form, {
       org_id: row.org_id,
+      device_ids: [...(row.device_ids || [])],
       event_types: [...row.event_types],
       record_duration_seconds: row.record_duration_seconds
     })
@@ -232,6 +281,16 @@ const fetchEventTypes = async () => {
   }
 }
 
+const fetchDevices = async () => {
+  try {
+    const res = await getDevices({ page_size: 100 })
+    const data = res.data || res
+    deviceList.value = data.items || []
+  } catch (e) {
+    console.error('获取设备列表失败:', e)
+  }
+}
+
 const fetchOrgs = async () => {
   try {
     const res = await getOrgs({ page_size: 100 })
@@ -249,6 +308,7 @@ const handleSubmit = async () => {
   const payload = {
     org_id: form.org_id!,
     event_types: form.event_types,
+    device_ids: form.device_ids,
     record_duration_seconds: form.record_duration_seconds,
     status: true
   }
@@ -286,6 +346,7 @@ onMounted(() => {
   fetchData()
   fetchEventTypes()
   fetchOrgs()
+  fetchDevices()
 })
 </script>
 

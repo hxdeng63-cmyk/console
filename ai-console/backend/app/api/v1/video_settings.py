@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.models.video_setting import VideoSetting
 from app.models.organization import Organization
+from app.models.device import Device
 from app.schemas import (
     VideoSettingCreate, VideoSettingUpdate, VideoSettingResponse,
     PaginatedResponse
@@ -16,12 +17,26 @@ router = APIRouter(prefix="/video-settings", tags=["录像设置管理"])
 
 
 async def _enrich_video_setting(item: VideoSetting, db: AsyncSession) -> dict:
-    """Enrich VideoSetting with org name."""
+    """Enrich VideoSetting with org name and device info."""
     data = VideoSettingResponse.model_validate(item).model_dump()
     if item.org_id:
         org = await db.get(Organization, item.org_id)
         if org:
             data["org_name"] = org.name
+
+    # Get device info from device_ids
+    device_ids = item.device_ids or []
+    if device_ids:
+        devices_query = select(Device).where(
+            Device.id.in_(device_ids),
+            Device.deleted_at.is_(None)
+        )
+        devices_result = await db.execute(devices_query)
+        devices = devices_result.scalars().all()
+        data["device_names"] = [d.name for d in devices]
+    else:
+        data["device_names"] = []
+
     return data
 
 
