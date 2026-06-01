@@ -50,7 +50,7 @@
     </div>
 
     <!-- 列表模式表格 -->
-    <el-table v-if="viewMode === 'list'" :data="pagedData" border stripe style="width: 100%">
+    <el-table v-if="viewMode === 'list'" :data="pagedData" border stripe style="width: 100%" v-loading="loading">
       <el-table-column prop="companyName" label="公司名称" width="100" align="center" />
       <el-table-column prop="regionName" label="区域" width="70" align="center" />
       <el-table-column prop="deviceName" label="设备名称" min-width="200" show-overflow-tooltip />
@@ -293,6 +293,7 @@ interface EventItem {
   reportTime: string
   isCompliant: string
   imageUrl: string
+  videoUrl: string
   detectBox: { top: string; left: string; width: string; height: string }
 }
 
@@ -333,8 +334,26 @@ const currentPage = ref(1)
 const pageSize = ref(10)
 
 const { companies, level1Regions, loadRegions } = useRegions()
+
+const loading = ref(false)
+
+const fetchEvents = async () => {
+  loading.value = true
+  try {
+    const { getAlgorithmEvents } = await import('@/api/algorithm-events')
+    const res = await getAlgorithmEvents({ page_size: 100 })
+    const data = res.data || res
+    tableData.value = data.items || []
+  } catch (e) {
+    console.error('获取预警事件失败:', e)
+  } finally {
+    loading.value = false
+  }
+}
+
 onMounted(() => {
   loadRegions()
+  fetchEvents()
 })
 
 // 详情弹窗

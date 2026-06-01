@@ -1,15 +1,9 @@
-﻿<template>
+<template>
   <div class="video-setting">
     <!-- 操作栏 -->
     <div class="toolbar">
       <div class="left-actions">
         <span class="total-label">录像设置</span>
-        <el-switch
-          v-model="masterSwitch"
-          active-color="#36D68A"
-          inactive-color="#303030"
-        />
-        <span class="switch-label">{{ masterSwitch ? '已启用' : '已禁用' }}</span>
       </div>
       <el-button type="primary" @click="openModal('add')">
         <el-icon><Plus /></el-icon>新增规则
@@ -17,18 +11,23 @@
     </div>
 
     <!-- 表格 -->
-    <el-table :data="pagedData" border stripe>
-      <el-table-column prop="ruleName" label="规则名称" min-width="200" show-overflow-tooltip />
-      <el-table-column prop="events" label="事件" min-width="300">
+    <el-table :data="pagedData" border stripe v-loading="loading">
+      <el-table-column prop="org_name" label="规则名称（公司）" min-width="200" show-overflow-tooltip />
+      <el-table-column label="事件" min-width="300">
         <template #default="{ row }">
           <el-tag
-            v-for="event in row.events"
-            :key="event"
+            v-for="eventId in row.event_types"
+            :key="eventId"
             size="small"
             style="margin-right: 4px;"
           >
-            {{ event }}
+            {{ getEventName(eventId) }}
           </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column prop="record_duration_seconds" label="录像时长" width="100" align="center">
+        <template #default="{ row }">
+          {{ row.record_duration_seconds }}秒
         </template>
       </el-table-column>
       <el-table-column prop="status" label="状态" width="100" align="center">
@@ -55,7 +54,7 @@
         v-model:current-page="currentPage"
         v-model:page-size="pageSize"
         :page-sizes="[5, 10, 20, 50]"
-        :total="tableData.length"
+        :total="total"
         layout="total, sizes, prev, pager, next, jumper"
         background
       />
@@ -69,49 +68,33 @@
       :close-on-click-modal="false"
     >
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
-        <el-form-item label="规则名称" prop="ruleName">
-          <el-input v-model="form.ruleName" placeholder="请输入规则名称" />
+        <el-form-item label="公司" prop="org_id">
+          <el-select v-model="form.org_id" placeholder="请选择公司" style="width: 100%">
+            <el-option
+              v-for="org in orgList"
+              :key="org.id"
+              :label="org.name"
+              :value="org.id"
+            />
+          </el-select>
         </el-form-item>
-        <el-form-item label="设备选择" prop="device">
-          <div class="device-selector">
-            <el-input v-model="deviceSearch" placeholder="输入关键字进行过滤" prefix-icon="Search" clearable />
-            <div class="device-list">
-              <div v-if="filteredDevices.length === 0" class="empty-text">暂无数据</div>
-              <el-radio-group v-else v-model="form.device">
-                <el-radio v-for="device in filteredDevices" :key="device" :value="device">{{ device }}</el-radio>
-              </el-radio-group>
-            </div>
-          </div>
-        </el-form-item>
-        <el-form-item label="事件选择" prop="events">
+        <el-form-item label="事件选择" prop="event_types">
           <div class="event-selector">
-            <el-checkbox-group v-model="form.events">
-              <el-checkbox value="疑似事故">疑似事故</el-checkbox>
-              <el-checkbox value="作业人员">作业人员</el-checkbox>
-              <el-checkbox value="交通阻塞">交通阻塞</el-checkbox>
-              <el-checkbox value="异常停车">异常停车</el-checkbox>
-              <el-checkbox value="烟雾">烟雾</el-checkbox>
-              <el-checkbox value="作业车辆识别">作业车辆识别</el-checkbox>
-              <el-checkbox value="非机动车驶入">非机动车驶入</el-checkbox>
-              <el-checkbox value="占用应急车道">占用应急车道</el-checkbox>
-              <el-checkbox value="逆向行驶">逆向行驶</el-checkbox>
-              <el-checkbox value="通过卡车数量">通过卡车数量</el-checkbox>
-              <el-checkbox value="通过大客车数量">通过大客车数量</el-checkbox>
-              <el-checkbox value="通过摩托车数量">通过摩托车数量</el-checkbox>
-              <el-checkbox value="通过小汽车数量">通过小汽车数量</el-checkbox>
-              <el-checkbox value="下行车流量">下行车流量</el-checkbox>
-              <el-checkbox value="上行车流量">上行车流量</el-checkbox>
-              <el-checkbox value="行人闯入">行人闯入</el-checkbox>
+            <el-checkbox-group v-model="form.event_types">
+              <el-checkbox
+                v-for="et in eventTypeList"
+                :key="et.id"
+                :value="et.id"
+              >
+                {{ et.name }}
+              </el-checkbox>
             </el-checkbox-group>
           </div>
         </el-form-item>
         <el-form-item label="时长设置">
           <div class="duration-selector">
-            <el-input-number v-model="form.recordDuration" :min="6" :max="30" :step="2" />
+            <el-input-number v-model="form.record_duration_seconds" :min="6" :max="60" :step="2" />
             <span class="duration-unit">秒</span>
-          </div>
-          <div class="duration-note">
-            注：时长范围6-30秒，步进值为2秒，每次录像最大3MB
           </div>
         </el-form-item>
       </el-form>
@@ -125,22 +108,44 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive } from 'vue'
+import { ref, computed, reactive, onMounted } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  getVideoSettings,
+  createVideoSetting,
+  updateVideoSetting,
+  deleteVideoSetting,
+  toggleVideoSettingStatus
+} from '@/api/video-settings'
+import { getEventTypes } from '@/api/event-types'
+import { getOrgs } from '@/api/orgs'
 
-interface RecordRule {
+interface VideoSettingItem {
   id: number
-  ruleName: string
-  device: string
-  events: string[]
-  recordDuration: number
+  org_id: number
+  org_name: string
+  event_types: number[]
+  record_duration_seconds: number
   status: boolean
 }
 
-const tableData = ref<RecordRule[]>([])
+interface EventTypeItem {
+  id: number
+  name: string
+}
 
-const masterSwitch = ref(true)
+interface OrgItem {
+  id: number
+  name: string
+}
+
+const tableData = ref<VideoSettingItem[]>([])
+const eventTypeList = ref<EventTypeItem[]>([])
+const orgList = ref<OrgItem[]>([])
+const loading = ref(false)
+const total = ref(0)
+
 const currentPage = ref(1)
 const pageSize = ref(10)
 
@@ -149,17 +154,20 @@ const pagedData = computed(() => {
   return tableData.value.slice(start, start + pageSize.value)
 })
 
-const onStatusChange = (row: RecordRule) => {
-  ElMessage.success(`规则 "${row.ruleName}" 已${row.status ? '启用' : '禁用'}`)
+const getEventName = (eventId: number) => {
+  const et = eventTypeList.value.find(e => e.id === eventId)
+  return et ? et.name : `事件${eventId}`
 }
 
-const deviceSearch = ref('')
-const allDevices = ['摄像头A', '摄像头B', '摄像头C', '摄像头D', '摄像头E']
-
-const filteredDevices = computed(() => {
-  if (!deviceSearch.value) return allDevices
-  return allDevices.filter(d => d.includes(deviceSearch.value))
-})
+const onStatusChange = async (row: VideoSettingItem) => {
+  try {
+    await toggleVideoSettingStatus(row.id)
+    ElMessage.success(`规则 "${row.org_name}" 已${row.status ? '启用' : '禁用'}`)
+  } catch (e) {
+    row.status = !row.status
+    ElMessage.error('状态更新失败')
+  }
+}
 
 const dialogVisible = ref(false)
 const dialogTitle = ref('添加录像设置')
@@ -167,31 +175,27 @@ const formRef = ref()
 const editingId = ref<number | null>(null)
 
 const defaultForm = () => ({
-  ruleName: '',
-  device: '',
-  events: [] as string[],
-  recordDuration: 6
+  org_id: null as number | null,
+  event_types: [] as number[],
+  record_duration_seconds: 10
 })
 
 const form = reactive(defaultForm())
 
 const rules = {
-  ruleName: [{ required: true, message: '请输入规则名称', trigger: 'blur' }],
-  device: [{ required: true, message: '请选择设备', trigger: 'change' }],
-  events: [{ required: true, message: '请选择事件', trigger: 'change' }]
+  org_id: [{ required: true, message: '请选择公司', trigger: 'change' }],
+  event_types: [{ required: true, message: '请选择事件', trigger: 'change' }]
 }
 
-const openModal = (type: 'add' | 'edit', row?: RecordRule) => {
+const openModal = (type: 'add' | 'edit', row?: VideoSettingItem) => {
   Object.assign(form, defaultForm())
-  deviceSearch.value = ''
   if (type === 'edit' && row) {
     editingId.value = row.id
     dialogTitle.value = '修改录像设置'
     Object.assign(form, {
-      ruleName: row.ruleName,
-      device: row.device,
-      events: [...row.events],
-      recordDuration: row.recordDuration
+      org_id: row.org_id,
+      event_types: [...row.event_types],
+      record_duration_seconds: row.record_duration_seconds
     })
   } else {
     editingId.value = null
@@ -200,44 +204,89 @@ const openModal = (type: 'add' | 'edit', row?: RecordRule) => {
   dialogVisible.value = true
 }
 
+const fetchData = async () => {
+  loading.value = true
+  try {
+    const params: any = {
+      page: currentPage.value,
+      page_size: pageSize.value
+    }
+    const res = await getVideoSettings(params)
+    const data = res.data || res
+    tableData.value = data.items || []
+    total.value = data.total || 0
+  } catch (e) {
+    ElMessage.error('获取录像设置失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+const fetchEventTypes = async () => {
+  try {
+    const res = await getEventTypes({ page_size: 100 })
+    const data = res.data || res
+    eventTypeList.value = data.items || []
+  } catch (e) {
+    console.error('获取事件类型失败:', e)
+  }
+}
+
+const fetchOrgs = async () => {
+  try {
+    const res = await getOrgs({ page_size: 100 })
+    const data = res.data || res
+    orgList.value = (data.items || []).filter((o: any) => o.level === 1)
+  } catch (e) {
+    console.error('获取公司列表失败:', e)
+  }
+}
+
 const handleSubmit = async () => {
   const valid = await (formRef.value as any).validate().catch(() => false)
   if (!valid) return
 
-  if (editingId.value) {
-    const idx = tableData.value.findIndex(item => item.id === editingId.value)
-    if (idx !== -1) {
-      Object.assign(tableData.value[idx], {
-        ruleName: form.ruleName,
-        device: form.device,
-        events: [...form.events],
-        recordDuration: form.recordDuration
-      })
-    }
-    ElMessage.success('修改成功')
-  } else {
-    tableData.value.push({
-      id: Date.now(),
-      ruleName: form.ruleName,
-      device: form.device,
-      events: [...form.events],
-      recordDuration: form.recordDuration,
-      status: true
-    })
-    ElMessage.success('添加成功')
+  const payload = {
+    org_id: form.org_id!,
+    event_types: form.event_types,
+    record_duration_seconds: form.record_duration_seconds,
+    status: true
   }
-  dialogVisible.value = false
+
+  try {
+    if (editingId.value) {
+      await updateVideoSetting(editingId.value, payload)
+      ElMessage.success('编辑成功')
+    } else {
+      await createVideoSetting(payload)
+      ElMessage.success('新增成功')
+    }
+    dialogVisible.value = false
+    await fetchData()
+  } catch (e: any) {
+    ElMessage.error(e?.message || '操作失败')
+  }
 }
 
-const handleDelete = (row: RecordRule) => {
-  ElMessageBox.confirm(`确定删除录像规则 "${row.ruleName}" 吗？`, '提示', { type: 'warning' })
-    .then(() => {
-      const idx = tableData.value.findIndex(item => item.id === row.id)
-      if (idx !== -1) tableData.value.splice(idx, 1)
-      ElMessage.success('删除成功')
+const handleDelete = (row: VideoSettingItem) => {
+  ElMessageBox.confirm(`确定删除 "${row.org_name}" 的录像规则吗？`, '提示', { type: 'warning' })
+    .then(async () => {
+      try {
+        await deleteVideoSetting(row.id)
+        ElMessage.success('删除成功')
+        await fetchData()
+      } catch (e) {
+        ElMessage.error('删除失败')
+      }
     })
     .catch(() => {})
 }
+
+onMounted(() => {
+  fetchData()
+  fetchEventTypes()
+  fetchOrgs()
+})
 </script>
 
 <style scoped>
@@ -260,24 +309,8 @@ const handleDelete = (row: RecordRule) => {
 
 .total-label {
   font-size: 16px;
-  font-weight: 500;
-  margin-right: 8px;
-}
-
-.switch-label {
-  font-size: 14px;
-  color: #B0C4D8;
-}
-
-.toolbar .el-button {
-  background: #00E5FF;
-  border-color: #00E5FF;
-  color: #001a2e;
-}
-
-.toolbar .el-button:hover {
-  background: #00B4D8;
-  border-color: #00B4D8;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .pagination-wrapper {
@@ -286,37 +319,17 @@ const handleDelete = (row: RecordRule) => {
   margin-top: 16px;
 }
 
-.device-selector {
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  padding: 12px;
-  background: rgba(255, 255, 255, 0.02);
-}
-
-.device-list {
-  margin-top: 12px;
-  max-height: 150px;
-  overflow-y: auto;
-}
-
-.empty-text {
-  color: #B0C4D8;
-  text-align: center;
-  padding: 20px;
-}
-
 .event-selector {
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  padding: 12px;
-  background: rgba(255, 255, 255, 0.02);
-  max-height: 180px;
+  max-height: 200px;
   overflow-y: auto;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  padding: 8px;
 }
 
-.event-selector :deep(.el-checkbox) {
-  margin-right: 16px;
-  margin-bottom: 8px;
+.event-selector .el-checkbox {
+  display: block;
+  margin-bottom: 4px;
 }
 
 .duration-selector {
@@ -326,18 +339,6 @@ const handleDelete = (row: RecordRule) => {
 }
 
 .duration-unit {
-  color: #B0C4D8;
-  font-size: 14px;
-}
-
-.duration-note {
-  margin-top: 8px;
-  font-size: 12px;
-  color: #00E5FF;
-  line-height: 1.4;
-}
-
-:deep(.el-dialog__body) {
-  padding-top: 20px;
+  color: rgba(255, 255, 255, 0.6);
 }
 </style>

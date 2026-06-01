@@ -1,8 +1,10 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime
 
 from fastapi import FastAPI, Request
+from fastapi.staticfiles import StaticFiles
 from app.api.v1 import router as api_v1_router
 from app.core.database import engine, AsyncSessionLocal
 from app.core.database import Base
@@ -32,6 +34,12 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="AI Console API", version="1.0.0", lifespan=lifespan)
+
+# Static files for uploads
+UPLOAD_DIR = "/home/daxiong/code/console/docs"
+os.makedirs(os.path.join(UPLOAD_DIR, "images"), exist_ok=True)
+os.makedirs(os.path.join(UPLOAD_DIR, "videos"), exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 app.include_router(api_v1_router, prefix="/api/v1")
 

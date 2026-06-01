@@ -10,6 +10,7 @@ Usage:
 import argparse
 import asyncio
 import random
+import uuid
 from datetime import datetime, time, timedelta
 
 from faker import Faker
@@ -758,8 +759,8 @@ async def seed_warning_events(
                 process_status=random.choice(process_statuses),
                 is_compliant=random.choice([True, False, None]),
                 report_time=random_datetime(datetime(2024, 6, 1), datetime.now()),
-                image_url=f"https://example.com/images/event_{i+1:03d}.jpg" if random.random() < 0.7 else None,
-                video_url=f"https://example.com/videos/event_{i+1:03d}.mp4" if random.random() < 0.3 else None,
+                image_url=f"/uploads/images/2026/06/{uuid.uuid4().hex}.jpg" if random.random() < 0.7 else None,
+                video_url=f"/uploads/videos/2026/06/{uuid.uuid4().hex}.mp4" if random.random() < 0.3 else None,
             )
         )
     session.add_all(events)
@@ -833,19 +834,29 @@ async def seed_tasks(session: AsyncSession, algorithm_ids: list[int], device_ids
 async def seed_video_settings(session: AsyncSession, device_ids: list[int]):
     if await count_rows(session, VideoSetting):
         return
+    # Get all companies (level 1 organizations)
+    org_query = select(Organization).where(
+        Organization.level == 1,
+        Organization.deleted_at.is_(None)
+    )
+    org_result = await session.execute(org_query)
+    orgs = org_result.scalars().all()
+
+    # Get all event type IDs
+    et_query = select(EventType.id).where(EventType.deleted_at.is_(None))
+    et_result = await session.execute(et_query)
+    event_type_ids = [r[0] for r in et_result.all()]
+
     settings = []
-    event_type_samples = [
-        {"face": True, "vehicle": False},
-        {"intrusion": True, "fire": True},
-        {"crowd": False, "fall": True},
-    ]
-    for did in device_ids[:30]:
+    for org in orgs:
+        # Randomly select some event types for each company
+        selected_events = random.sample(event_type_ids, min(random.randint(3, 8), len(event_type_ids)))
         settings.append(
             VideoSetting(
-                device_id=did,
-                event_types=random.choice(event_type_samples),
+                org_id=org.id,
+                event_types=selected_events,
                 record_duration_seconds=random.choice([10, 15, 30, 60]),
-                status=random.choice([True, True, False]),
+                status=True,
             )
         )
     session.add_all(settings)

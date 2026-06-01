@@ -101,8 +101,9 @@ async def list_algorithm_events(
                 if event.report_time
                 else event.created_at.strftime("%Y-%m-%d %H:%M:%S")
             ),
-            "isCompliant": "是" if event.is_compliant else "否",
+            "isCompliant": "是" if event.is_compliant is True else ("否" if event.is_compliant is False else "未知"),
             "imageUrl": event.image_url or "",
+            "videoUrl": event.video_url or "",
             "detectBox": {"top": "0%", "left": "0%", "width": "0%", "height": "0%"},
         })
 

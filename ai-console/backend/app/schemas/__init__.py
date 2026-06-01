@@ -357,7 +357,7 @@ class AccessPlatformResponse(AccessPlatformBase):
 
 
 class VideoSettingBase(BaseModel):
-    device_id: int
+    org_id: int
     event_types: list = Field(default_factory=list)
     record_duration_seconds: int = 10
     status: bool = True
@@ -375,20 +375,14 @@ class VideoSettingUpdate(BaseModel):
 
 class VideoSettingResponse(BaseModel):
     id: int
-    device_id: int
+    org_id: int
     event_types: list
     record_duration_seconds: int
     status: bool
     created_at: datetime
     updated_at: datetime
     deleted_at: Optional[datetime] = None
-    # Device info
-    device_name: Optional[str] = None
-    device_status: Optional[str] = None
-    org_id: Optional[int] = None
     org_name: Optional[str] = None
-    region_id: Optional[int] = None
-    region_name: Optional[str] = None
 
     class Config:
         from_attributes = True
