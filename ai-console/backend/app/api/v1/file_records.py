@@ -18,6 +18,18 @@ def soft_delete_query(query, model):
     return query.where(model.deleted_at.is_(None))
 
 
+def _validate_source_type(source_type: Optional[str]) -> None:
+    if not source_type:
+        return
+    from app.models.file import FileSourceType
+    valid = {e.value for e in FileSourceType}
+    if source_type not in valid:
+        raise HTTPException(
+            status_code=422,
+            detail=f"source_type must be one of {valid}"
+        )
+
+
 @router.get("", response_model=PaginatedResponse)
 async def list_file_records(
     page: int = Query(default=1, ge=1),
@@ -27,6 +39,10 @@ async def list_file_records(
     file_type: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    event_type_id: Optional[int] = None,
+    region_id: Optional[int] = None,
+    org_id: Optional[int] = None,
+    source_type: Optional[str] = None,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -35,7 +51,13 @@ async def list_file_records(
     - device_id: 设备ID筛选
     - file_type: 文件类型筛选
     - start_date/end_date: 日期范围筛选
+    - event_type_id: 事件类型ID筛选
+    - region_id: 区域ID筛选
+    - org_id: 组织ID筛选
+    - source_type: 来源类型筛选（warning_event_image / warning_event_video）
     """
+    from app.models.warning_event import WarningEvent
+
     query = select(File)
     query = soft_delete_query(query, File)
 
@@ -47,6 +69,22 @@ async def list_file_records(
 
     if file_type:
         query = query.where(File.file_type == file_type)
+
+    _validate_source_type(source_type)
+    if source_type:
+        query = query.where(File.source_type == source_type)
+
+    if event_type_id is not None or region_id is not None or org_id is not None:
+        query = query.outerjoin(WarningEvent, File.warning_event_id == WarningEvent.id)
+
+    if event_type_id is not None:
+        query = query.where(WarningEvent.event_type_id == event_type_id)
+
+    if region_id is not None:
+        query = query.where(WarningEvent.region_id == region_id)
+
+    if org_id is not None:
+        query = query.where(WarningEvent.org_id == org_id)
 
     count_query = select(func.count()).select_from(query.subquery())
     total_result = await db.execute(count_query)
@@ -66,39 +104,56 @@ async def list_file_records(
 
 
 @router.get("/tree", response_model=list)
-async def get_file_tree(db: AsyncSession = Depends(get_db)):
-    """Return file records grouped by org -> region -> file as a tree."""
+async def get_file_tree(
+    source_type: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """Return file records grouped by org -> region -> event type -> file as a tree."""
     from app.models.device import Device
     from app.models.region import Region
     from app.models.organization import Organization
+    from app.models.warning_event import WarningEvent
+    from app.models.event_type import EventType
+
+    _validate_source_type(source_type)
 
     query = (
-        select(File, Device, Region, Organization)
+        select(File, Device, Region, Organization, WarningEvent, EventType)
         .outerjoin(Device, File.device_id == Device.id)
         .outerjoin(Region, Device.region_id == Region.id)
         .outerjoin(Organization, Device.org_id == Organization.id)
+        .outerjoin(WarningEvent, File.warning_event_id == WarningEvent.id)
+        .outerjoin(EventType, WarningEvent.event_type_id == EventType.id)
         .where(File.deleted_at.is_(None))
         .order_by(File.created_at.desc())
+        .limit(2000)
     )
+
+    if source_type:
+        query = query.where(File.source_type == source_type)
+
     result = await db.execute(query)
     rows = result.all()
 
     org_map: dict = {}
-    for file_record, device, region, org in rows:
+    for file_record, device, region, org, warning_event, event_type in rows:
         org_name = org.name if org else "未知公司"
         region_name = region.name if region else "未知区域"
+        event_type_name = event_type.name if event_type else "未知事件类型"
 
         if org_name not in org_map:
             org_map[org_name] = {}
         if region_name not in org_map[org_name]:
-            org_map[org_name][region_name] = []
+            org_map[org_name][region_name] = {}
+        if event_type_name not in org_map[org_name][region_name]:
+            org_map[org_name][region_name][event_type_name] = []
 
-        org_map[org_name][region_name].append({
+        org_map[org_name][region_name][event_type_name].append({
             "id": file_record.id,
             "name": file_record.file_name,
             "isFile": True,
             "fileType": file_record.file_type or "视频",
-            "eventType": file_record.file_type or "",
+            "eventType": event_type_name,
             "previewUrl": file_record.url or "",
             "filePath": file_record.storage_path or "",
         })
@@ -113,13 +168,23 @@ async def get_file_tree(db: AsyncSession = Depends(get_db)):
             "children": [],
         }
         region_idx = 0
-        for region_name, files in regions.items():
+        for region_name, event_types in regions.items():
             region_node = {
                 "id": f"org-{org_idx}-region-{region_idx}",
                 "name": region_name,
                 "isRegion": True,
-                "children": files,
+                "children": [],
             }
+            event_type_idx = 0
+            for event_type_name, files in event_types.items():
+                event_type_node = {
+                    "id": f"org-{org_idx}-region-{region_idx}-etype-{event_type_idx}",
+                    "name": event_type_name,
+                    "isEventType": True,
+                    "children": files,
+                }
+                region_node["children"].append(event_type_node)
+                event_type_idx += 1
             org_node["children"].append(region_node)
             region_idx += 1
         tree.append(org_node)

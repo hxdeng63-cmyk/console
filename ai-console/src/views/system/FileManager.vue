@@ -6,22 +6,12 @@
         <el-input v-model="searchForm.companyName" placeholder="公司名称" style="width: 160px" clearable />
         <el-input v-model="searchForm.regionName" placeholder="区域" style="width: 140px" clearable />
         <el-select v-model="searchForm.eventType" placeholder="事件类型" style="width: 160px" clearable>
-          <el-option label="疑似事故" value="疑似事故" />
-          <el-option label="作业人员" value="作业人员" />
-          <el-option label="交通阻塞" value="交通阻塞" />
-          <el-option label="异常停车" value="异常停车" />
-          <el-option label="烟雾" value="烟雾" />
-          <el-option label="作业车辆识别" value="作业车辆识别" />
-          <el-option label="非机动车驶入" value="非机动车驶入" />
-          <el-option label="占用应急车道" value="占用应急车道" />
-          <el-option label="逆向行驶" value="逆向行驶" />
-          <el-option label="通过卡车数量" value="通过卡车数量" />
-          <el-option label="通过大客车数量" value="通过大客车数量" />
-          <el-option label="通过摩托车数量" value="通过摩托车数量" />
-          <el-option label="通过小汽车数量" value="通过小汽车数量" />
-          <el-option label="下行车流量" value="下行车流量" />
-          <el-option label="上行车流量" value="上行车流量" />
-          <el-option label="行人闯入" value="行人闯入" />
+          <el-option
+            v-for="et in eventTypeList"
+            :key="et.id"
+            :label="et.name"
+            :value="et.name"
+          />
         </el-select>
         <el-select v-model="searchForm.fileType" placeholder="文件类型" style="width: 120px" clearable>
           <el-option label="视频" value="视频" />
@@ -44,7 +34,7 @@
     <!-- 树形表格 -->
     <el-table
       ref="tableRef"
-      :data="filteredTreeData"
+      :data="treeData"
       row-key="id"
       border
       stripe
@@ -52,12 +42,13 @@
       :default-expand-all="true"
       v-loading="loading"
     >
-      <!-- 层级列：公司 / 区域 / 文件 -->
+      <!-- 层级列：公司 / 区域 / 事件类型 / 文件 -->
       <el-table-column label="文件层级" min-width="220">
         <template #default="{ row }">
           <div class="tree-node-content">
             <el-icon v-if="row.isCompany" :size="16" class="node-icon company-icon"><OfficeBuilding /></el-icon>
             <el-icon v-else-if="row.isRegion" :size="16" class="node-icon region-icon"><MapLocation /></el-icon>
+            <el-icon v-else-if="row.isEventType" :size="16" class="node-icon event-type-icon"><Calendar /></el-icon>
             <el-icon v-else-if="row.fileType === '视频'" :size="16" class="node-icon video-icon"><VideoCamera /></el-icon>
             <el-icon v-else :size="16" class="node-icon image-icon"><Picture /></el-icon>
             <span class="node-name" :class="{ 'company-name': row.isCompany, 'region-name': row.isRegion }">{{ row.name }}</span>
@@ -152,15 +143,17 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Search, ArrowDown, ArrowUp,
   OfficeBuilding, MapLocation, VideoCamera, Picture,
-  ZoomIn, VideoPlay
+  ZoomIn, VideoPlay, Calendar
 } from '@element-plus/icons-vue'
 import { getFileTree } from '@/api/files.js'
+import { getEventTypes } from '@/api/event-types.js'
 
 interface FileNode {
-  id: number
+  id: number | string
   name: string
   isCompany?: boolean
   isRegion?: boolean
+  isEventType?: boolean
   isFile?: boolean
   fileType?: '视频' | '图片'
   eventType?: string
@@ -172,12 +165,17 @@ interface FileNode {
 const treeData = ref<FileNode[]>([])
 const loading = ref(false)
 const tableRef = ref()
+const eventTypeList = ref<{ id: number; name: string }[]>([])
 
 onMounted(async () => {
   loading.value = true
   try {
-    const data = await getFileTree()
-    treeData.value = data || []
+    const [treeRes, etRes] = await Promise.all([
+      getFileTree(),
+      getEventTypes()
+    ])
+    treeData.value = treeRes || []
+    eventTypeList.value = etRes?.items || etRes || []
   } catch (error) {
     console.error('Failed to load file tree:', error)
     ElMessage.error('加载文件树失败')
@@ -200,28 +198,26 @@ const handleSearch = () => {
   treeData.value = JSON.parse(JSON.stringify(filtered))
 }
 
-// 树形过滤
+// 树形过滤（四级：公司 -> 区域 -> 事件类型 -> 文件）
 function filterTree(nodes: FileNode[], criteria: { companyName: string; regionName: string; eventType: string; fileType: string }): FileNode[] {
   const result: FileNode[] = []
   for (const node of nodes) {
     if (node.isCompany && criteria.companyName && !node.name.includes(criteria.companyName)) {
-      // 公司名不匹配，跳过整个公司
       continue
     }
-    const cloned = { ...node, children: node.children ? [...node.children] : undefined }
+    const cloned: FileNode = { ...node, children: node.children ? [...node.children] : undefined }
     if (cloned.children) {
       cloned.children = filterTree(cloned.children, criteria)
     }
-    // 区域过滤
     if (node.isRegion && criteria.regionName && !node.name.includes(criteria.regionName)) {
-      // 如果区域不匹配但有子文件匹配公司/类型，保留
       if (!cloned.children || cloned.children.length === 0) continue
     }
-    // 事件类型过滤
+    if (node.isEventType && criteria.eventType && !node.name.includes(criteria.eventType)) {
+      if (!cloned.children || cloned.children.length === 0) continue
+    }
     if (node.isFile && criteria.eventType && node.eventType !== criteria.eventType) {
       continue
     }
-    // 文件类型过滤
     if (node.isFile && criteria.fileType && node.fileType !== criteria.fileType) {
       continue
     }
@@ -229,8 +225,6 @@ function filterTree(nodes: FileNode[], criteria: { companyName: string; regionNa
   }
   return result
 }
-
-const filteredTreeData = computed(() => treeData.value)
 
 // 展开/折叠
 const expandAll = () => {
@@ -286,7 +280,7 @@ const handleDelete = (row: FileNode) => {
     .catch(() => {})
 }
 
-function deleteNode(nodes: FileNode[], targetId: number): boolean {
+function deleteNode(nodes: FileNode[], targetId: number | string): boolean {
   for (let i = 0; i < nodes.length; i++) {
     if (nodes[i].id === targetId) {
       nodes.splice(i, 1)
@@ -294,9 +288,15 @@ function deleteNode(nodes: FileNode[], targetId: number): boolean {
     }
     if (nodes[i].children) {
       if (deleteNode(nodes[i].children!, targetId)) {
-        // 如果区域下没有文件了，移除区域
+        // 如果事件类型下没有文件了，移除事件类型
+        if (nodes[i].isEventType && nodes[i].children!.length === 0) {
+          nodes.splice(i, 1)
+          return true
+        }
+        // 如果区域下没有事件类型了，移除区域
         if (nodes[i].isRegion && nodes[i].children!.length === 0) {
           nodes.splice(i, 1)
+          return true
         }
         return true
       }
@@ -371,6 +371,10 @@ function deleteNode(nodes: FileNode[], targetId: number): boolean {
 
 .region-icon {
   color: #00FF88;
+}
+
+.event-type-icon {
+  color: #F59E0B;
 }
 
 .video-icon {

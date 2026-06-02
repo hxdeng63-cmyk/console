@@ -1,6 +1,6 @@
 from datetime import datetime
 from sqlalchemy import String, ForeignKey, Index, DateTime
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import BaseModel
 
@@ -20,6 +20,9 @@ class WarningEvent(BaseModel):
     report_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     video_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    # Relationships
+    files: Mapped[list["File"]] = relationship("File", back_populates="warning_event")
 
     __table_args__ = (
         Index("idx_warning_device", "device_id"),

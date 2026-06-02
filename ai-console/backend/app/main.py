@@ -10,6 +10,9 @@ from app.core.database import engine, AsyncSessionLocal
 from app.core.database import Base
 from app.models.operation_log import OperationLog
 
+# 注册 SQLAlchemy event listeners (WarningEvent -> File auto-creation)
+from app.models.events import create_file_records_on_insert, sync_file_records_on_update
+
 # Configure uvicorn/access logging
 logging.getLogger("uvicorn").setLevel(logging.INFO)
 logging.getLogger("uvicorn.access").setLevel(logging.INFO)

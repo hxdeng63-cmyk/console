@@ -209,6 +209,8 @@ class FileRecordBase(BaseModel):
     file_type: Optional[str] = None
     storage_path: Optional[str] = None
     url: Optional[str] = None
+    warning_event_id: Optional[int] = None
+    source_type: Optional[str] = None
 
 
 class FileRecordCreate(FileRecordBase):

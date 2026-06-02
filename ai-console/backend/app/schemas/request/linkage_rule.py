@@ -19,6 +19,7 @@ class LinkageRuleRequest(BaseModel):
     importance_level: int = 1
     send_frequency: Optional[str] = None
     push_channels: Optional[Any] = None
+    selected_devices: Optional[list[int]] = None
     app_id: Optional[str] = None
     app_secret: Optional[str] = None
     template_id: Optional[str] = None
@@ -50,6 +51,7 @@ class LinkageRuleResponse(BaseModel):
     template_id: Optional[str]
     push_target: Optional[str]
     remark: Optional[str]
+    selected_devices: Optional[list[int]] = None
     created_at: datetime
     updated_at: datetime
     deleted_at: Optional[datetime]
