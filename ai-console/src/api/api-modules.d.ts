@@ -63,6 +63,13 @@ declare module '@/api/cleanRecords' {
   export const createCleanRecord: (data: any) => Promise<any>
   export const updateCleanRecord: (id: any, data: any) => Promise<any>
   export const deleteCleanRecord: (id: any) => Promise<any>
+  export const executeCleanRecord: (data: any) => Promise<any>
+  export const getCleanStatus: (id: any) => Promise<any>
+}
+
+declare module '@/api/cleanupPolicy' {
+  export const getCleanupPolicy: () => Promise<any>
+  export const updateCleanupPolicy: (data: any) => Promise<any>
 }
 
 declare module '@/api/dashboard' {

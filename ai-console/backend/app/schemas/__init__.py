@@ -419,6 +419,9 @@ class CleanRecordResponse(CleanRecordBase):
     created_at: datetime
     updated_at: datetime
     deleted_at: Optional[datetime] = None
+    records_cleaned: int = 0
+    dimension: Optional[str] = None
+    error_message: Optional[str] = None
 
     class Config:
         from_attributes = True

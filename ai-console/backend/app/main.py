@@ -31,8 +31,16 @@ async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     logger.info("Database tables created (if not exist)")
+
+    # Start scheduled cleanup job
+    from app.core.scheduler import start_scheduler
+    start_scheduler()
+
     yield
+
     # Shutdown
+    from app.core.scheduler import shutdown_scheduler
+    shutdown_scheduler()
     await engine.dispose()
 
 

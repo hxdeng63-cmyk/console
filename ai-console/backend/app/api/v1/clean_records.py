@@ -116,3 +116,37 @@ async def delete_clean_record(record_id: int, db: AsyncSession = Depends(get_db)
     record.deleted_at = datetime.utcnow()
     await db.commit()
     return {"message": "删除成功"}
+
+
+@router.post("/execute", response_model=CleanRecordResponse)
+async def execute_clean(
+    data: dict,
+    db: AsyncSession = Depends(get_db)
+):
+    """手动执行数据清理任务
+
+    Request body:
+        dimension: str - 清理维度，可选 "all" | "warning_event" | "video_file"，默认 "all"
+    """
+    from app.services.cleanup_service import execute_cleanup
+
+    dimension = data.get("dimension", "all")
+    if dimension not in ("all", "warning_event", "video_file"):
+        raise HTTPException(status_code=400, detail="dimension 参数无效")
+
+    record = await execute_cleanup(db, dimension=dimension)
+    return record
+
+
+@router.get("/status/{record_id}", response_model=CleanRecordResponse)
+async def get_clean_status(record_id: int, db: AsyncSession = Depends(get_db)):
+    """查询清理任务状态"""
+    query = select(CleanRecord).where(
+        CleanRecord.id == record_id,
+        CleanRecord.deleted_at.is_(None)
+    )
+    result = await db.execute(query)
+    record = result.scalar_one_or_none()
+    if not record:
+        raise HTTPException(status_code=404, detail="清理记录不存在")
+    return record

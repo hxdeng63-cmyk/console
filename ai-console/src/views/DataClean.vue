@@ -71,7 +71,9 @@
 
         <!-- 按钮 -->
         <el-form-item>
-          <el-button type="primary" @click="handleSubmit">提交执行</el-button>
+          <el-button type="primary" :loading="loading" @click="handleSubmit">
+            {{ form.strategy === 'immediate' ? '立即执行' : '保存配置' }}
+          </el-button>
           <el-button @click="handleCancel">取消</el-button>
         </el-form-item>
       </el-form>
@@ -83,16 +85,17 @@
         <span>清理记录</span>
       </template>
       <el-table :data="pagedData" stripe border>
-        <el-table-column prop="type" label="类型" width="150" />
-        <el-table-column prop="cutoffTime" label="数据保存截止时间" width="200" />
-        <el-table-column prop="status" label="状态" width="150">
+        <el-table-column prop="type" label="类型" width="120" />
+        <el-table-column prop="dimension" label="清理维度" width="120" />
+        <el-table-column prop="cutoffTime" label="数据保存截止时间" width="180" />
+        <el-table-column prop="status" label="状态" width="100">
           <template #default="{ row }">
-            <el-tag :type="row.status === '成功' ? 'success' : row.status === '执行中' ? 'warning' : 'info'">
+            <el-tag :type="row.status === '成功' ? 'success' : row.status === '执行中' ? 'warning' : row.status === '失败' ? 'danger' : 'info'">
               {{ row.status }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="progress" label="进度">
+        <el-table-column prop="progress" label="进度" width="150">
           <template #default="{ row }">
             <el-progress
               :percentage="row.progress"
@@ -100,6 +103,8 @@
             />
           </template>
         </el-table-column>
+        <el-table-column prop="recordsCleaned" label="清理条数" width="100" />
+        <el-table-column prop="errorMessage" label="错误信息" show-overflow-tooltip />
       </el-table>
 
       <div class="pagination-wrapper">
@@ -118,13 +123,18 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { getCleanRecords } from '@/api/cleanRecords'
+import { ElMessage } from 'element-plus'
+import { getCleanRecords, executeCleanRecord } from '@/api/cleanRecords'
+import { getCleanupPolicy, updateCleanupPolicy } from '@/api/cleanupPolicy'
 
 interface CleanRecord {
   type: string
   cutoffTime: string
   status: string
   progress: number
+  recordsCleaned: number
+  dimension: string
+  errorMessage: string
 }
 
 const form = ref({
@@ -139,21 +149,41 @@ const form = ref({
 const cleanRecords = ref<CleanRecord[]>([])
 const currentPage = ref(1)
 const pageSize = ref(10)
+const loading = ref(false)
 
 const pagedData = computed(() => {
   const start = (currentPage.value - 1) * pageSize.value
   return cleanRecords.value.slice(start, start + pageSize.value)
 })
 
+const fetchCleanupPolicy = async () => {
+  try {
+    const res: any = await getCleanupPolicy()
+    form.value = {
+      strategy: res.strategy || 'scheduled',
+      executeTime: res.execute_time || '02:00',
+      alertEnabled: res.alert_enabled ?? true,
+      alertDays: res.alert_days ?? 90,
+      videoEnabled: res.video_enabled ?? true,
+      videoDays: res.video_days ?? 60,
+    }
+  } catch (error) {
+    console.error('Failed to load cleanup policy:', error)
+  }
+}
+
 const fetchCleanRecords = async () => {
   try {
     const res: any = await getCleanRecords({ page: 1, page_size: 100 })
     const items = res.items || []
     cleanRecords.value = items.map((item: any) => ({
-      type: item.type || item.recordType || item.record_type || '-',
-      cutoffTime: item.cutoffTime || item.cutoff_time || item.createdAt || item.created_at || '-',
-      status: item.status || (item.progress === 100 ? '成功' : item.progress > 0 ? '执行中' : '待执行'),
-      progress: Number(item.progress ?? item.progressPercent ?? item.progress_percent ?? 0)
+      type: item.type || '-',
+      cutoffTime: item.cutoff_time || item.created_at || '-',
+      status: _mapStatus(item.status),
+      progress: Number(item.progress ?? 0),
+      recordsCleaned: item.records_cleaned ?? 0,
+      dimension: item.dimension || '-',
+      errorMessage: item.error_message || '',
     }))
   } catch (error) {
     console.error('Failed to load clean records:', error)
@@ -161,23 +191,52 @@ const fetchCleanRecords = async () => {
   }
 }
 
+function _mapStatus(status: string): string {
+  if (status === 'completed') return '成功'
+  if (status === 'running') return '执行中'
+  if (status === 'failed') return '失败'
+  return '待执行'
+}
+
 onMounted(() => {
+  fetchCleanupPolicy()
   fetchCleanRecords()
 })
 
-const handleSubmit = () => {
-  console.log('submit', form.value)
+const handleSubmit = async () => {
+  loading.value = true
+  try {
+    if (form.value.strategy === 'immediate') {
+      const dimension = form.value.alertEnabled && form.value.videoEnabled
+        ? 'all'
+        : form.value.alertEnabled
+          ? 'warning_event'
+          : form.value.videoEnabled
+            ? 'video_file'
+            : 'all'
+      await executeCleanRecord({ dimension })
+      ElMessage.success('清理任务已提交')
+      await fetchCleanRecords()
+    } else {
+      await updateCleanupPolicy({
+        alert_enabled: form.value.alertEnabled,
+        alert_days: form.value.alertDays,
+        video_enabled: form.value.videoEnabled,
+        video_days: form.value.videoDays,
+        strategy: form.value.strategy,
+        execute_time: form.value.executeTime,
+      })
+      ElMessage.success('策略配置已保存')
+    }
+  } catch (error: any) {
+    ElMessage.error(error.message || '操作失败')
+  } finally {
+    loading.value = false
+  }
 }
 
 const handleCancel = () => {
-  form.value = {
-    strategy: 'scheduled',
-    executeTime: '02:00',
-    alertEnabled: true,
-    alertDays: 90,
-    videoEnabled: true,
-    videoDays: 60,
-  }
+  fetchCleanupPolicy()
 }
 </script>
 

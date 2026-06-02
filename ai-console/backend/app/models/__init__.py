@@ -37,6 +37,7 @@ from app.models.popup_event_limit import PopupEventLimit
 from app.models.ui_theme import UITheme
 from app.models.microservice import Microservice
 from app.models.data_source import DataSource
+from app.models.cleanup_policy import CleanupPolicy
 from app.models.access_platform import AccessPlatform
 from app.models.gb28181_device import Gb28181Device
 from app.models.onvif_device import OnvifDevice
@@ -84,6 +85,7 @@ __all__ = [
     "UITheme",
     "Microservice",
     "DataSource",
+    "CleanupPolicy",
     "AccessPlatform",
     "Gb28181Device",
     "OnvifDevice",

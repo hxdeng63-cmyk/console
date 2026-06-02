@@ -40,4 +40,6 @@ class File(BaseModel):
         Index("idx_file_warning_source", "warning_event_id", "source_type"),
         Index("idx_file_warning_event_source_unique", "warning_event_id", "source_type",
               unique=True, postgresql_where=(text("deleted_at IS NULL"))),
+        Index("idx_file_source_created", "source_type", "created_at",
+              postgresql_where=(text("deleted_at IS NULL"))),
     )
