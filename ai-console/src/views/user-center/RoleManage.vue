@@ -293,7 +293,7 @@ const permissionForm = reactive({
   roleId: ''
 })
 
-const accountList = ref<{ username: string; name: string; phone: string; org: string }[]>([])
+const accountList = ref<{ id?: number; username: string; name: string; phone: string; org: string }[]>([])
 
 const resourceGroups = ref<ResourceGroup[]>([])
 const activeGroups = ref<string[]>([])
@@ -344,6 +344,7 @@ const openModal = async (type: 'add' | 'edit' | 'detail' | 'permission', row?: R
       }
       const users = await getRoleUsers(row.id, params)
       accountList.value = users.map((u: any) => ({
+        id: u.id,
         username: u.username,
         name: u.name || u.real_name || u.username,
         phone: u.phone || '-',

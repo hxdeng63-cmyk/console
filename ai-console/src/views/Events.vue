@@ -191,6 +191,14 @@
       </template>
     </el-dialog>
 
+    <!-- 视频回放弹窗 -->
+    <el-dialog v-model="videoDialogVisible" title="视频回放" width="800px" :close-on-click-modal="false">
+      <div class="video-container">
+        <video v-if="currentVideoUrl" :src="currentVideoUrl" controls style="width: 100%; max-height: 500px;" />
+        <div v-else style="text-align: center; padding: 40px; color: #999;">暂无视频</div>
+      </div>
+    </el-dialog>
+
     <!-- 导出弹窗 -->
     <el-dialog v-model="exportDialogVisible" title="导出" width="400px" :close-on-click-modal="false">
       <div class="export-options">
@@ -279,7 +287,7 @@
 import { ref, computed, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
-import { useRegions } from '@/composables/useRegions'
+import { getDeviceGroupTree } from '@/api/device-groups'
 
 interface EventItem {
   id: number
@@ -333,7 +341,19 @@ const viewMode = ref('list')
 const currentPage = ref(1)
 const pageSize = ref(10)
 
-const { companies, level1Regions, loadRegions } = useRegions()
+const companies = ref<any[]>([])
+const level1Regions = ref<any[]>([])
+
+function flattenTree(nodes: any[]): any[] {
+  const result: any[] = []
+  for (const node of nodes) {
+    result.push(node)
+    if (node.children?.length) {
+      result.push(...flattenTree(node.children))
+    }
+  }
+  return result
+}
 
 const loading = ref(false)
 
@@ -351,14 +371,30 @@ const fetchEvents = async () => {
   }
 }
 
+const loadTreeData = async () => {
+  try {
+    const res = await getDeviceGroupTree()
+    const tree = res.data || res || []
+    const flat = flattenTree(tree)
+    companies.value = flat.filter((n: any) => n.isCompany)
+    level1Regions.value = flat.filter((n: any) => n.isRegion && n.level === 1)
+  } catch (e) {
+    console.error('获取设备组树失败:', e)
+  }
+}
+
 onMounted(() => {
-  loadRegions()
+  loadTreeData()
   fetchEvents()
 })
 
 // 详情弹窗
 const detailDialogVisible = ref(false)
 const currentRecord = ref<EventItem | null>(null)
+
+// 视频回放弹窗
+const videoDialogVisible = ref(false)
+const currentVideoUrl = ref('')
 
 // 导出弹窗
 const exportDialogVisible = ref(false)
@@ -461,12 +497,15 @@ const handleDetail = (row: EventItem) => {
 }
 
 const handleVideo = (row: EventItem) => {
-  ElMessage.info(`视频回放: ${row.deviceName}`)
+  currentRecord.value = row
+  currentVideoUrl.value = row.videoUrl || ''
+  videoDialogVisible.value = true
 }
 
 const handleVideoPlayback = () => {
   if (currentRecord.value) {
-    ElMessage.info(`视频回放: ${currentRecord.value.deviceName}`)
+    currentVideoUrl.value = currentRecord.value.videoUrl || ''
+    videoDialogVisible.value = true
   }
 }
 

@@ -15,6 +15,7 @@ from datetime import datetime, time, timedelta
 
 from faker import Faker
 from sqlalchemy import select, func, text
+from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal, engine
@@ -731,40 +732,88 @@ async def seed_linkage_rules(
     return rule_ids
 
 
-async def seed_warning_events(
-    session: AsyncSession,
-    device_ids: list[int],
-    org_ids: list[int],
-    region_ids: list[int],
-    algorithm_ids: list[int],
-    event_type_ids: list[int],
-    rule_ids: list[int],
-) -> list[int]:
+async def seed_warning_events(session: AsyncSession) -> list[int]:
+    """Seed warning events with realistic data linked to existing devices and linkage rules."""
     if await count_rows(session, WarningEvent):
         result = await session.execute(select(WarningEvent.id))
         return [r[0] for r in result.all()]
 
-    process_statuses = ["pending", "pending", "processing", "resolved", "ignored"]
+    # Query actual devices with their org and region
+    device_result = await session.execute(select(Device))
+    devices = device_result.scalars().all()
+    if not devices:
+        print("No devices found. Skipping warning event seed.")
+        return []
+
+    # Build region_id -> region_name mapping
+    region_result = await session.execute(select(Region.id, Region.name))
+    region_map = {r[0]: r[1] for r in region_result.all()}
+
+    # Build event_type_id -> event_type_name mapping
+    event_type_result = await session.execute(select(EventType.id, EventType.name))
+    event_type_map = {r[0]: r[1] for r in event_type_result.all()}
+
+    # Query active linkage rules for strict matching
+    rule_result = await session.execute(
+        select(LinkageRule).where(LinkageRule.status == "active")
+    )
+    active_rules = rule_result.scalars().all()
+    if not active_rules:
+        print("No active linkage rules found. Skipping warning event seed.")
+        return []
+
+    # Local image/video files from docs directory (cycle through all events)
+    local_images = [
+        "/uploads/images/2026/06/00000.jpg",
+        "/uploads/images/2026/06/0a96c6d2-ed93-4dec-8562-1c69af136ca7.jpg",
+        "/uploads/images/2026/06/_91753989_capture.jpg",
+    ]
+    local_videos = [
+        "/uploads/videos/2026/06/165c962d08838f11f572cb4b3e54135b.mp4",
+        "/uploads/videos/2026/06/4beb2aca90d91fa4d4b3e5007a4bbd52.mp4",
+        "/uploads/videos/2026/06/aea14d4b5df2f1b43eaa2e3c747a2808.mp4",
+    ]
+
+    process_statuses = ["pending", "processing", "resolved", "ignored"]
+    now = datetime.now()
     events = []
-    for i in range(100):
-        events.append(
-            WarningEvent(
-                device_id=random.choice(device_ids) if device_ids else None,
-                org_id=random.choice(org_ids) if org_ids else None,
-                region_id=random.choice(region_ids) if region_ids else None,
-                algorithm_id=random.choice(algorithm_ids) if algorithm_ids else None,
-                event_type_id=random.choice(event_type_ids) if event_type_ids else None,
-                rule_id=random.choice(rule_ids) if rule_ids else None,
-                event_detail=fake.sentence(),
-                process_status=random.choice(process_statuses),
-                is_compliant=random.choice([True, False, None]),
-                report_time=random_datetime(datetime(2024, 6, 1), datetime.now()),
-                image_url=f"/uploads/images/2026/06/{uuid.uuid4().hex}.jpg" if random.random() < 0.7 else None,
-                video_url=f"/uploads/videos/2026/06/{uuid.uuid4().hex}.mp4" if random.random() < 0.3 else None,
+
+    for device in devices:
+        event_count = random.randint(5, 8)
+        for _ in range(event_count):
+            # Strictly match an active linkage rule
+            rule = random.choice(active_rules)
+
+            # Build event detail
+            region_name = region_map.get(device.region_id, "")
+            event_type_name = event_type_map.get(rule.event_type_id, "")
+            event_detail = f"{region_name}{device.name}检测到{event_type_name}"
+
+            # Image/video URLs: cycle through local files so every event has valid media
+            idx = len(events)
+            image_url = local_images[idx % len(local_images)]
+            video_url = local_videos[idx % len(local_videos)]
+
+            events.append(
+                WarningEvent(
+                    device_id=device.id,
+                    org_id=device.org_id,
+                    region_id=device.region_id,
+                    algorithm_id=rule.algorithm_id,
+                    event_type_id=rule.event_type_id,
+                    rule_id=rule.id,
+                    event_detail=event_detail,
+                    process_status=random.choice(process_statuses),
+                    is_compliant=False,
+                    report_time=random_datetime(now - timedelta(days=7), now),
+                    image_url=image_url,
+                    video_url=video_url,
+                )
             )
-        )
+
     session.add_all(events)
     await session.flush()
+    print(f"Seeded {len(events)} warning events.")
     return [e.id for e in events]
 
 
@@ -1220,7 +1269,7 @@ async def seed_all(clear: bool = False):
         rule_ids = await seed_linkage_rules(session, algorithm_ids, event_type_ids, device_ids)
 
         # 7. Warning events (depend on devices, orgs, regions, algorithms, event_types, rules)
-        event_ids = await seed_warning_events(session, device_ids, org_ids, region_ids, algorithm_ids, event_type_ids, rule_ids)
+        event_ids = await seed_warning_events(session)
         tag_ids = await seed_dispose_tags(session)
         await seed_warning_event_tags(session, event_ids, tag_ids)
 

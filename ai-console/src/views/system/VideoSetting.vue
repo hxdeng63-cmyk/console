@@ -147,8 +147,7 @@ import {
   toggleVideoSettingStatus
 } from '@/api/video-settings'
 import { getEventTypes } from '@/api/event-types'
-import { getOrgs } from '@/api/orgs'
-import { getDevices } from '@/api/devices'
+import { getDeviceGroupTree } from '@/api/device-groups'
 
 interface VideoSettingItem {
   id: number
@@ -281,23 +280,26 @@ const fetchEventTypes = async () => {
   }
 }
 
-const fetchDevices = async () => {
-  try {
-    const res = await getDevices({ page_size: 100 })
-    const data = res.data || res
-    deviceList.value = data.items || []
-  } catch (e) {
-    console.error('获取设备列表失败:', e)
+function flattenTree(nodes: any[]): any[] {
+  const result: any[] = []
+  for (const node of nodes) {
+    result.push(node)
+    if (node.children?.length) {
+      result.push(...flattenTree(node.children))
+    }
   }
+  return result
 }
 
-const fetchOrgs = async () => {
+const fetchTreeData = async () => {
   try {
-    const res = await getOrgs({ page_size: 100 })
-    const data = res.data || res
-    orgList.value = (data.items || []).filter((o: any) => o.level === 1)
+    const res = await getDeviceGroupTree()
+    const tree = res.data || res || []
+    const flat = flattenTree(tree)
+    orgList.value = flat.filter((n: any) => n.isCompany)
+    deviceList.value = flat.filter((n: any) => !n.isCompany && !n.isRegion)
   } catch (e) {
-    console.error('获取公司列表失败:', e)
+    console.error('获取设备组树失败:', e)
   }
 }
 
@@ -345,8 +347,7 @@ const handleDelete = (row: VideoSettingItem) => {
 onMounted(() => {
   fetchData()
   fetchEventTypes()
-  fetchOrgs()
-  fetchDevices()
+  fetchTreeData()
 })
 </script>
 
