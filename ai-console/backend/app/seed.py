@@ -694,6 +694,45 @@ async def seed_linkage_rules(
     statuses = ["active", "active", "active", "inactive"]
     rules = []
     for i in range(25):
+        # Mix old and new push_channels formats for compatibility testing
+        if random.random() < 0.5:
+            # New TaskEdit.vue format (single channel with channel_type)
+            channel_type = random.choice(["wechat", "wechat_work", "dingtalk", "sms"])
+            if channel_type == "wechat":
+                push_channels = {
+                    "channel_type": "wechat",
+                    "app_id": fake.uuid4(),
+                    "app_secret": fake.password(),
+                    "template_id": fake.uuid4(),
+                }
+            elif channel_type == "wechat_work":
+                push_channels = {
+                    "channel_type": "wechat_work",
+                    "corp_id": fake.uuid4(),
+                    "app_secret": fake.password(),
+                    "agent_id": fake.uuid4(),
+                }
+            elif channel_type == "dingtalk":
+                push_channels = {
+                    "channel_type": "dingtalk",
+                    "app_key": fake.uuid4(),
+                    "app_secret": fake.password(),
+                    "agent_id": fake.uuid4(),
+                }
+            else:
+                push_channels = {"channel_type": "sms", "sms_id": fake.uuid4()}
+            send_frequency = random.choice(["immediate", "delayed", "scheduled"])
+            delay_value = random.randint(1, 60) if send_frequency == "delayed" else None
+            delay_unit = random.choice(["minute", "hour", "day"]) if send_frequency == "delayed" else None
+            scheduled_time = random_datetime(datetime(2024, 1, 1), datetime(2025, 12, 31)) if send_frequency == "scheduled" else None
+        else:
+            # Old LinkageRule.vue format (array of channel objects handled as dict here)
+            push_channels = {"app": True, "sms": random.random() < 0.5, "email": random.random() < 0.5}
+            send_frequency = random.choice(["immediate", "5min", "15min", "1hour"])
+            delay_value = None
+            delay_unit = None
+            scheduled_time = None
+
         rules.append(
             LinkageRule(
                 rule_name=f"联动规则-{i+1:02d}",
@@ -709,11 +748,18 @@ async def seed_linkage_rules(
                 link=fake.url() if random.random() < 0.3 else None,
                 content=fake.sentence(),
                 importance_level=random.randint(1, 5),
-                send_frequency=random.choice(["immediate", "5min", "15min", "1hour"]),
-                push_channels={"app": True, "sms": random.random() < 0.5, "email": random.random() < 0.5},
+                send_frequency=send_frequency,
+                delay_value=delay_value,
+                delay_unit=delay_unit,
+                scheduled_time=scheduled_time,
+                push_channels=push_channels,
                 app_id=fake.uuid4() if random.random() < 0.3 else None,
                 app_secret=fake.password() if random.random() < 0.3 else None,
                 template_id=fake.uuid4() if random.random() < 0.3 else None,
+                wechat_app_id=fake.uuid4() if random.random() < 0.3 else None,
+                wechat_app_secret=fake.password() if random.random() < 0.3 else None,
+                wechat_template_id=fake.uuid4() if random.random() < 0.3 else None,
+                sms_id=fake.uuid4() if random.random() < 0.3 else None,
                 push_target=fake.phone_number() if random.random() < 0.3 else None,
                 remark=fake.sentence() if random.random() < 0.5 else None,
             )

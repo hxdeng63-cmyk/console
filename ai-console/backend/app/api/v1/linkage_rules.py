@@ -110,8 +110,32 @@ async def get_linkage_rule(item_id: int, db: AsyncSession = Depends(get_db)):
     return LinkageRuleResponse.model_validate(data)
 
 
+def _validate_push_channels(data: LinkageRuleRequest) -> None:
+    """Validate push_target and channel config when TaskEdit-style push_channels is provided."""
+    channels = data.push_channels
+    if channels and isinstance(channels, dict) and channels.get("channel_type"):
+        if not data.push_target:
+            raise HTTPException(status_code=422, detail="推送目标不能为空")
+        channel_type = channels["channel_type"]
+        required_fields = {
+            "wechat": ["app_id", "app_secret", "template_id"],
+            "wechat_work": ["corp_id", "app_secret", "agent_id"],
+            "dingtalk": ["app_key", "app_secret", "agent_id"],
+            "sms": ["sms_id"],
+        }
+        fields = required_fields.get(channel_type)
+        if fields:
+            missing = [f for f in fields if not channels.get(f)]
+            if missing:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"{channel_type} 渠道缺少必填字段: {', '.join(missing)}"
+                )
+
+
 @router.post("", response_model=LinkageRuleResponse)
 async def create_linkage_rule(data: LinkageRuleRequest, db: AsyncSession = Depends(get_db)):
+    _validate_push_channels(data)
     dump = data.model_dump()
     selected_devices = dump.pop("selected_devices", None)
     rule = LinkageRule(**dump)
@@ -133,6 +157,7 @@ async def create_linkage_rule(data: LinkageRuleRequest, db: AsyncSession = Depen
 
 @router.put("/{item_id}", response_model=LinkageRuleResponse)
 async def update_linkage_rule(item_id: int, data: LinkageRuleRequest, db: AsyncSession = Depends(get_db)):
+    _validate_push_channels(data)
     rule = await _get_linkage_rule_or_404(db, item_id)
 
     dump = data.model_dump()

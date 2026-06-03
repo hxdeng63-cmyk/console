@@ -18,11 +18,18 @@ class LinkageRuleRequest(BaseModel):
     content: Optional[str] = None
     importance_level: int = 1
     send_frequency: Optional[str] = None
+    delay_value: Optional[int] = None
+    delay_unit: Optional[str] = None
+    scheduled_time: Optional[datetime] = None
     push_channels: Optional[Any] = None
     selected_devices: Optional[list[int]] = None
     app_id: Optional[str] = None
     app_secret: Optional[str] = None
     template_id: Optional[str] = None
+    wechat_app_id: Optional[str] = None
+    wechat_app_secret: Optional[str] = None
+    wechat_template_id: Optional[str] = None
+    sms_id: Optional[str] = None
     push_target: Optional[str] = None
     remark: Optional[str] = None
 
@@ -45,10 +52,17 @@ class LinkageRuleResponse(BaseModel):
     content: Optional[str]
     importance_level: int
     send_frequency: Optional[str]
+    delay_value: Optional[int]
+    delay_unit: Optional[str]
+    scheduled_time: Optional[datetime]
     push_channels: Optional[Any]
     app_id: Optional[str]
     app_secret: Optional[str]
     template_id: Optional[str]
+    wechat_app_id: Optional[str]
+    wechat_app_secret: Optional[str]
+    wechat_template_id: Optional[str]
+    sms_id: Optional[str]
     push_target: Optional[str]
     remark: Optional[str]
     selected_devices: Optional[list[int]] = None
