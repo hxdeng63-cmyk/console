@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import String, ForeignKey, Index, DateTime
+from sqlalchemy import String, ForeignKey, Index, DateTime, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import BaseModel
@@ -23,6 +23,11 @@ class WarningEvent(BaseModel):
 
     # Relationships
     files: Mapped[list["File"]] = relationship("File", back_populates="warning_event")
+    event_type: Mapped["EventType"] = relationship("EventType", foreign_keys=[event_type_id])
+    algorithm: Mapped["Algorithm"] = relationship("Algorithm", foreign_keys=[algorithm_id])
+    organization: Mapped["Organization"] = relationship("Organization", foreign_keys=[org_id])
+    region: Mapped["Region"] = relationship("Region", foreign_keys=[region_id])
+    device: Mapped["Device"] = relationship("Device", foreign_keys=[device_id])
 
     __table_args__ = (
         Index("idx_warning_device", "device_id"),
@@ -32,4 +37,8 @@ class WarningEvent(BaseModel):
         Index("idx_warning_rule", "rule_id"),
         Index("idx_warning_report_time", "report_time"),
         Index("idx_warning_process_status", "process_status"),
+        Index("idx_warning_stats_event_type", "org_id", "region_id", "event_type_id", "report_time"),
+        Index("idx_warning_stats_algo", "org_id", "region_id", "algorithm_id", "report_time"),
+        Index("idx_warning_stats_trend", "org_id", "region_id", "report_time", "algorithm_id", "event_type_id"),
+        Index("idx_warning_stats_report_time_coalesce", func.coalesce(report_time, BaseModel.created_at)),
     )

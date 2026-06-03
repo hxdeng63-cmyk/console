@@ -123,9 +123,11 @@
         v-model:current-page="currentPage"
         v-model:page-size="pageSize"
         :page-sizes="[5, 10, 20, 50]"
-        :total="filteredData.length"
+        :total="totalCount"
         layout="total, sizes, prev, pager, next, jumper"
         background
+        @current-change="fetchEvents"
+        @size-change="() => { currentPage = 1; fetchEvents() }"
       />
     </div>
 
@@ -340,6 +342,7 @@ const searchForm = reactive({
 const viewMode = ref('list')
 const currentPage = ref(1)
 const pageSize = ref(10)
+const totalCount = ref(0)
 
 const companies = ref<any[]>([])
 const level1Regions = ref<any[]>([])
@@ -361,9 +364,24 @@ const fetchEvents = async () => {
   loading.value = true
   try {
     const { getAlgorithmEvents } = await import('@/api/algorithm-events')
-    const res = await getAlgorithmEvents({ page_size: 100 })
+    const params: Record<string, any> = {
+      page: currentPage.value,
+      page_size: pageSize.value
+    }
+    if (searchForm.companyName) params.companyName = searchForm.companyName
+    if (searchForm.regionName) params.regionName = searchForm.regionName
+    if (searchForm.algorithmName) params.algorithmName = searchForm.algorithmName
+    if (searchForm.eventType) params.eventType = searchForm.eventType
+    if (searchForm.deviceName) params.deviceName = searchForm.deviceName
+    if (searchForm.isCompliant) params.isCompliant = searchForm.isCompliant
+    if (searchForm.processStatus) params.processStatus = searchForm.processStatus
+    if (searchForm.startTime) params.startTime = new Date(searchForm.startTime).toISOString()
+    if (searchForm.endTime) params.endTime = new Date(searchForm.endTime).toISOString()
+
+    const res = await getAlgorithmEvents(params)
     const data = res.data || res
     tableData.value = data.items || []
+    totalCount.value = data.total || 0
   } catch (e) {
     console.error('获取预警事件失败:', e)
   } finally {
@@ -438,23 +456,7 @@ const penaltyRules = {
 
 const tableData = ref<EventItem[]>([])
 
-const filteredData = computed(() => {
-  return tableData.value.filter(item => {
-    if (searchForm.companyName && item.companyName !== searchForm.companyName) return false
-    if (searchForm.regionName && item.regionName !== searchForm.regionName) return false
-    if (searchForm.algorithmName && item.algorithmName !== searchForm.algorithmName) return false
-    if (searchForm.eventType && item.eventTypeName !== searchForm.eventType) return false
-    if (searchForm.deviceName && !item.deviceName.includes(searchForm.deviceName)) return false
-    if (searchForm.isCompliant && item.isCompliant !== searchForm.isCompliant) return false
-    if (searchForm.processStatus && item.processStatus !== searchForm.processStatus) return false
-    return true
-  })
-})
-
-const pagedData = computed(() => {
-  const start = (currentPage.value - 1) * pageSize.value
-  return filteredData.value.slice(start, start + pageSize.value)
-})
+const pagedData = computed(() => tableData.value)
 
 const getStatusType = (status: string) => {
   switch (status) {
@@ -471,7 +473,7 @@ const getStatusType = (status: string) => {
 
 const handleSearch = () => {
   currentPage.value = 1
-  ElMessage.success('查询成功')
+  fetchEvents()
 }
 
 const handleReset = () => {
@@ -479,6 +481,7 @@ const handleReset = () => {
     ;(searchForm as any)[key] = ''
   })
   currentPage.value = 1
+  fetchEvents()
   ElMessage.success('重置成功')
 }
 

@@ -160,9 +160,12 @@ declare module '@/api/event-types.js' {
 }
 
 declare module '@/api/event-stats' {
-  export const getEventStats: (params?: any) => Promise<any>
-  export const getEventTrend: (params?: any) => Promise<any>
-  export const getSceneStats: () => Promise<any>
+  export const getTodayStats: (params?: any) => Promise<any>
+  export const getViolationStats: (params?: any) => Promise<any>
+  export const getAlgorithmSummary: (params?: any) => Promise<any>
+  export const getSceneStats: (params?: any) => Promise<any>
+  export const getTrendStats: (params?: any) => Promise<any>
+  export const getEventTrendStats: (params?: any) => Promise<any>
 }
 
 declare module '@/api/files' {

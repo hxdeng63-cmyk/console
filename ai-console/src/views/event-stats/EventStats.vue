@@ -3,11 +3,11 @@
     <!-- 顶部筛选面板 -->
     <div class="filter-panel">
       <div class="filter-row">
-        <el-select v-model="filterForm.company" placeholder="选择公司" size="default" clearable>
-          <el-option v-for="c in companies" :key="c.id" :label="c.name" :value="c.name" />
+        <el-select v-model="filterForm.org_id" placeholder="选择公司" size="default" clearable>
+          <el-option v-for="c in companies" :key="c.id" :label="c.name" :value="c.id" />
         </el-select>
-        <el-select v-model="filterForm.region" placeholder="选择区域" size="default" clearable>
-          <el-option v-for="r in level1Regions" :key="r.id" :label="r.name" :value="r.name" />
+        <el-select v-model="filterForm.region_id" placeholder="选择区域" size="default" clearable>
+          <el-option v-for="r in allRegions" :key="r.id" :label="r.name" :value="r.id" />
         </el-select>
         <el-date-picker v-model="filterForm.startDate" type="date" placeholder="开始日期" size="default" />
         <el-date-picker v-model="filterForm.endDate" type="date" placeholder="结束日期" size="default" />
@@ -109,7 +109,14 @@ import * as echarts from 'echarts/core'
 import { BarChart, PieChart, LineChart, GaugeChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent, DataZoomComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { getSceneStats, getEventStats } from '@/api/event-stats'
+import {
+  getTodayStats,
+  getViolationStats,
+  getAlgorithmSummary,
+  getSceneStats,
+  getTrendStats,
+  getEventTrendStats
+} from '@/api/event-stats'
 import { useRegions } from '@/composables/useRegions'
 
 echarts.use([BarChart, PieChart, LineChart, GaugeChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, CanvasRenderer])
@@ -117,21 +124,24 @@ echarts.use([BarChart, PieChart, LineChart, GaugeChart, GridComponent, TooltipCo
 const selectedEventType = ref('异常停车')
 
 const filterForm = reactive({
-  company: '',
-  region: '',
+  org_id: null as number | null,
+  region_id: null as number | null,
   startDate: '',
   endDate: '',
   algorithmType: 'traffic',
-  trendDimension: 'day'
+  trendDimension: 'day',
+  event_type_id: null as number | null
 })
 
-const { companies, level1Regions, loadRegions } = useRegions()
+const { companies, allRegions, loadRegions, getRegionWithDescendants } = useRegions()
 
 // Reactive state for API data
-const sceneCategories = ref<string[]>([])
-const sceneValues = ref<number[]>([])
-const todayEventData = ref<{ name: string; value: number }[]>([])
+const todayStats = ref({ total: 0, items: [] as { name: string; value: number }[] })
+const violationStats = ref([] as { name: string; value: number }[])
+const algoSummary = ref({ total: 0, max: 0 })
+const sceneStats = ref({ items: [] as { id: number; name: string; value: number }[], categories: [] as string[], values: [] as number[] })
 const trendData = ref<{ time: string; value: number }[]>([])
+const eventTrendData = ref<{ time: string; value: number }[]>([])
 
 const todayChartRef = ref<HTMLDivElement>()
 const leftChartRef = ref<HTMLDivElement>()
@@ -158,44 +168,80 @@ const chartColors = {
   gridLine: 'rgba(0, 229, 255, 0.1)'
 }
 
-// Computed values from API data
-const sceneTotal = ref(0)
-const todayEventTotal = ref(0)
-
-// Fetch scene stats from API
-const fetchSceneStats = async () => {
-  try {
-    const data = await getSceneStats()
-    sceneCategories.value = data.categories || []
-    sceneValues.value = data.values || []
-    sceneTotal.value = sceneValues.value.reduce((a: number, b: number) => a + b, 0)
-    todayEventData.value = data.todayEvents || []
-    todayEventTotal.value = todayEventData.value.reduce((sum: number, d: { name: string; value: number }) => sum + d.value, 0)
-  } catch (error) {
-    console.error('Failed to fetch scene stats:', error)
-    // Fallback to empty data to avoid breaking the UI
-    sceneCategories.value = []
-    sceneValues.value = []
-    sceneTotal.value = 0
-    todayEventData.value = []
-    todayEventTotal.value = 0
+const buildBaseParams = () => {
+  const regionIds = filterForm.region_id ? getRegionWithDescendants(filterForm.region_id) : undefined
+  return {
+    org_id: filterForm.org_id || undefined,
+    region_ids: regionIds,
+    start_date: filterForm.startDate || undefined,
+    end_date: filterForm.endDate || undefined
   }
 }
 
-// Fetch trend data from API
+const fetchTodayStats = async () => {
+  try {
+    const data = await getTodayStats(buildBaseParams())
+    todayStats.value = data
+  } catch (error) {
+    console.error('Failed to fetch today stats:', error)
+    todayStats.value = { total: 0, items: [] }
+  }
+}
+
+const fetchViolationStats = async () => {
+  try {
+    const data = await getViolationStats(buildBaseParams())
+    violationStats.value = data.items || []
+  } catch (error) {
+    console.error('Failed to fetch violation stats:', error)
+    violationStats.value = []
+  }
+}
+
+const fetchAlgorithmSummary = async () => {
+  try {
+    const data = await getAlgorithmSummary(buildBaseParams())
+    algoSummary.value = data
+  } catch (error) {
+    console.error('Failed to fetch algorithm summary:', error)
+    algoSummary.value = { total: 0, max: 0 }
+  }
+}
+
+const fetchSceneStats = async () => {
+  try {
+    const data = await getSceneStats(buildBaseParams())
+    sceneStats.value = data
+  } catch (error) {
+    console.error('Failed to fetch scene stats:', error)
+    sceneStats.value = { items: [], categories: [], values: [] }
+  }
+}
+
 const fetchTrendData = async () => {
   try {
-    const data = await getEventStats({
-      dimension: filterForm.trendDimension,
-      company: filterForm.company,
-      region: filterForm.region,
-      startDate: filterForm.startDate,
-      endDate: filterForm.endDate
+    const data = await getTrendStats({
+      ...buildBaseParams(),
+      dimension: filterForm.trendDimension
     })
     trendData.value = data.trend || []
   } catch (error) {
     console.error('Failed to fetch trend data:', error)
     trendData.value = []
+  }
+}
+
+const fetchEventTrend = async () => {
+  try {
+    const data = await getEventTrendStats({
+      ...buildBaseParams(),
+      dimension: filterForm.trendDimension,
+      event_type_id: filterForm.event_type_id || undefined
+    })
+    eventTrendData.value = data.trend || []
+  } catch (error) {
+    console.error('Failed to fetch event trend:', error)
+    eventTrendData.value = []
   }
 }
 
@@ -214,13 +260,13 @@ const initTodayChart = () => {
     },
     yAxis: {
       type: 'category',
-      data: ['今日交通不合规检测'],
+      data: ['今日上报预警事件数'],
       axisLine: { lineStyle: { color: chartColors.border } },
       axisLabel: { color: chartColors.textSecondary, fontSize: 11 }
     },
     series: [{
       type: 'bar',
-      data: [{ value: todayEventTotal.value, itemStyle: { color: new echarts.graphic.LinearGradient(1, 0, 0, 0, [{ offset: 0, color: '#007BFF' }, { offset: 1, color: '#00E5FF' }]) } }],
+      data: [{ value: todayStats.value.total, itemStyle: { color: new echarts.graphic.LinearGradient(1, 0, 0, 0, [{ offset: 0, color: '#007BFF' }, { offset: 1, color: '#00E5FF' }]) } }],
       barWidth: 20,
       label: { show: true, position: 'right', color: chartColors.primary, fontSize: 14, fontWeight: 'bold' }
     }]
@@ -243,13 +289,13 @@ const initLeftChart = () => {
     },
     yAxis: {
       type: 'category',
-      data: todayEventData.value.map((d: { name: string; value: number }) => d.name),
+      data: violationStats.value.map((d: { name: string; value: number }) => d.name),
       axisLine: { lineStyle: { color: chartColors.border } },
       axisLabel: { color: chartColors.textSecondary, fontSize: 10 }
     },
     series: [{
       type: 'bar',
-      data: todayEventData.value.map((d: { name: string; value: number }) => ({ value: d.value, itemStyle: { color: new echarts.graphic.LinearGradient(1, 0, 0, 0, [{ offset: 0, color: '#007BFF' }, { offset: 1, color: '#00E5FF' }]) } })),
+      data: violationStats.value.map((d: { name: string; value: number }) => ({ value: d.value, itemStyle: { color: new echarts.graphic.LinearGradient(1, 0, 0, 0, [{ offset: 0, color: '#007BFF' }, { offset: 1, color: '#00E5FF' }]) } })),
       barWidth: 12,
       label: { show: true, position: 'right', color: chartColors.primary, fontSize: 11 }
     }]
@@ -288,7 +334,8 @@ const initGaugeChart = () => {
       anchor: { show: false },
       title: { show: false },
       detail: { show: false },
-      data: [{ value: sceneTotal.value, name: '事件总数' }]
+      data: [{ value: algoSummary.value.total, name: '事件总数' }],
+      max: algoSummary.value.max || 100
     }],
     tooltip: {
       trigger: 'item',
@@ -313,7 +360,7 @@ const initCenterChart = () => {
     grid: { left: '3%', right: '3%', top: '15%', bottom: '15%' },
     xAxis: {
       type: 'category',
-      data: sceneCategories.value,
+      data: sceneStats.value.categories,
       axisLine: { lineStyle: { color: chartColors.border } },
       axisLabel: { color: chartColors.textSecondary, fontSize: 10, rotate: 30 }
     },
@@ -325,7 +372,7 @@ const initCenterChart = () => {
     },
     series: [{
       type: 'bar',
-      data: sceneValues.value,
+      data: sceneStats.value.values,
       barWidth: '50%',
       itemStyle: {
         color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
@@ -342,7 +389,9 @@ const initCenterChart = () => {
   centerChart.on('click', (params: any) => {
     if (params.name) {
       selectedEventType.value = params.name
-      updateParkingChart(params.name)
+      const item = sceneStats.value.items.find((i: { id: number; name: string; value: number }) => i.name === params.name)
+      filterForm.event_type_id = item?.id || null
+      fetchEventTrend().then(() => updateParkingChart())
     }
   })
 }
@@ -350,8 +399,8 @@ const initCenterChart = () => {
 const initTrendChart = () => {
   if (!trendChartRef.value) return
   trendChart = echarts.init(trendChartRef.value)
-  const times = trendData.value.length > 0 ? trendData.value.map((d: { time: string }) => d.time) : ['03-18', '03-20', '03-22', '03-24', '03-26', '03-28', '03-30']
-  const values = trendData.value.length > 0 ? trendData.value.map((d: { time: string; value: number }) => d.value) : [65, 78, 92, 88, 95, 110, 125]
+  const times = trendData.value.map((d: { time: string }) => d.time)
+  const values = trendData.value.map((d: { time: string; value: number }) => d.value)
   const option = {
     backgroundColor: 'transparent',
     tooltip: { trigger: 'axis' },
@@ -413,18 +462,10 @@ const initParkingChart = () => {
   updateParkingChart()
 }
 
-const updateParkingChart = (eventName?: string) => {
+const updateParkingChart = () => {
   if (!parkingChart) return
-  const name = eventName || selectedEventType.value
-  // 用事件名生成伪随机种子，保证同一事件每次数据一致
-  const seed = name.split('').reduce((sum, c) => sum + c.charCodeAt(0), 0)
-  const times = ['03-18', '03-20', '03-22', '03-24', '03-26', '03-28', '03-30']
-  const data = times.map((_, i) => {
-    const base = 30 + (seed % 80)
-    const wave = Math.sin((i + seed * 0.1) * 0.8) * 25
-    const random = ((seed * (i + 1)) % 40) - 20
-    return Math.max(5, Math.floor(base + wave + random))
-  })
+  const times = eventTrendData.value.length > 0 ? eventTrendData.value.map((d: { time: string }) => d.time) : []
+  const values = eventTrendData.value.length > 0 ? eventTrendData.value.map((d: { value: number }) => d.value) : []
   const option = {
     backgroundColor: 'transparent',
     tooltip: { trigger: 'axis' },
@@ -465,7 +506,7 @@ const updateParkingChart = (eventName?: string) => {
     }],
     series: [{
       type: 'line',
-      data,
+      data: values,
       areaStyle: {
         color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
           { offset: 0, color: 'rgba(0, 229, 255, 0.4)' },
@@ -480,7 +521,19 @@ const updateParkingChart = (eventName?: string) => {
   parkingChart.setOption(option, true)
 }
 
-const handleQuery = () => {
+const handleQuery = async () => {
+  await Promise.all([
+    fetchTodayStats(),
+    fetchViolationStats(),
+    fetchAlgorithmSummary(),
+    fetchSceneStats(),
+    fetchTrendData(),
+    fetchEventTrend()
+  ])
+  initTodayChart()
+  initLeftChart()
+  initGaugeChart()
+  initCenterChart()
   initTrendChart()
   initParkingChart()
 }
@@ -496,7 +549,14 @@ const resizeCharts = () => {
 
 onMounted(async () => {
   await loadRegions()
-  await Promise.all([fetchSceneStats(), fetchTrendData()])
+  await Promise.all([
+    fetchTodayStats(),
+    fetchViolationStats(),
+    fetchAlgorithmSummary(),
+    fetchSceneStats(),
+    fetchTrendData(),
+    fetchEventTrend()
+  ])
   initTodayChart()
   initLeftChart()
   initGaugeChart()

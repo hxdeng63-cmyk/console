@@ -46,12 +46,37 @@ export const useRegions = () => {
     collectRegions(treeData.value, n => !!n.isRegion)
   )
 
+  const getRegionWithDescendants = (regionId: number): number[] => {
+    const findNode = (nodes: RegionNode[]): RegionNode | null => {
+      for (const node of nodes) {
+        if (node.id === regionId) return node
+        if (node.children) {
+          const found = findNode(node.children)
+          if (found) return found
+        }
+      }
+      return null
+    }
+    const collectIds = (node: RegionNode): number[] => {
+      const ids = [node.id]
+      if (node.children) {
+        for (const child of node.children) {
+          ids.push(...collectIds(child))
+        }
+      }
+      return ids
+    }
+    const target = findNode(treeData.value)
+    return target ? collectIds(target) : []
+  }
+
   return {
     treeData,
     companies,
     level1Regions,
     allRegions,
     loadRegions,
-    loaded
+    loaded,
+    getRegionWithDescendants
   }
 }
