@@ -12,10 +12,9 @@
       <el-table :data="pagedData" border stripe style="width: 100%">
         <el-table-column type="index" label="序号" width="60" align="center" />
         <el-table-column prop="name" label="布控名称" min-width="150" show-overflow-tooltip />
-        <el-table-column prop="deviceNames" label="布控设备" min-width="250" show-overflow-tooltip>
+        <el-table-column label="布控设备" min-width="250" show-overflow-tooltip>
           <template #default="{ row }">
-            <span class="device-link" v-if="row.deviceNamesLink">{{ row.deviceNames }}</span>
-            <span v-else>{{ row.deviceNames }}</span>
+            <span>{{ formatDeviceNames(row.deviceIds) }}</span>
           </template>
         </el-table-column>
         <el-table-column prop="algorithmId" label="算法" width="100" align="center">
@@ -113,14 +112,13 @@
 
         <el-form-item label="设备选择">
           <div class="device-selector">
-            <el-input
-              v-model="deviceSearch"
-              placeholder="输入关键字进行过滤"
-              clearable
-              size="small"
-              style="margin-bottom: 10px;"
+            <DeviceTree
+              :key="deviceTreeKey"
+              :data="deviceTreeData"
+              :default-checked-keys="form.selectedDevices"
+              mode="checkbox"
+              @node-check="handleDeviceSelect"
             />
-            <DeviceTree :data="deviceTreeData" mode="checkbox" @node-check="handleDeviceSelect" />
           </div>
         </el-form-item>
 
@@ -188,6 +186,7 @@ import type { DeviceNode } from '@/components/device-tree/useDeviceTree'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import DeviceTree from '@/components/device-tree/DeviceTree.vue'
 import { deploymentApi } from '@/api/deployment'
+import { getDeviceGroupTree } from '@/api/device-groups'
 
 interface DeploymentItem {
   id: number
@@ -231,11 +230,11 @@ const fetchDeployments = async () => {
     deploymentsData.value = (res.items || []).map((item: any) => ({
       id: item.id,
       name: item.name,
-      deviceIds: [],
-      deviceNames: '',
+      deviceIds: item.device_ids || [],
+      deviceNames: (item.device_ids || []).map((id: number) => `设备${id}`).join(', ') || '-',
       algorithmId: item.algorithm_id,
       serviceId: item.service_id,
-      schedule: { 1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 7: [] },
+      schedule: item.schedule || { 1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 7: [] },
       status: item.status,
       algorithmStatus: item.algorithm_status,
       createTime: item.created_at ? new Date(item.created_at).toLocaleString() : ''
@@ -279,48 +278,29 @@ const fetchServices = async () => {
   }
 }
 
-const fetchDevices = async () => {
+// Convert /device-groups/tree response to DeviceNode format
+const convertTreeData = (nodes: any[]): DeviceNode[] => {
+  return nodes.map((node: any) => {
+    const converted: DeviceNode = {
+      id: String(node.id),
+      name: node.name,
+      type: node.level === 'device' ? 'device' : 'org',
+      online: node.status === 'active' || node.status === 'online',
+      children: node.children ? convertTreeData(node.children) : undefined,
+      level: node.level,
+    }
+    return converted
+  })
+}
+
+const fetchDeviceTree = async () => {
   loading.devices = true
   try {
-    const res = await deploymentApi.listDevices({ page: 1, page_size: 100 }) as any
-    const devices = res.items || []
-    // Build tree structure: org -> group -> device
-    const orgMap = new Map()
-    devices.forEach((device: any) => {
-      const orgId = device.org_id || 'default'
-      const regionId = device.region_id || 'default'
-      if (!orgMap.has(orgId)) {
-        orgMap.set(orgId, {
-          id: `org-${orgId}`,
-          name: device.org_name || `Organization ${orgId}`,
-          type: 'org',
-          online: true,
-          children: []
-        })
-      }
-      const org = orgMap.get(orgId)
-      let group = org.children.find((g: any) => g.id === `group-${regionId}`)
-      if (!group) {
-        group = {
-          id: `group-${regionId}`,
-          name: device.region_name || `Region ${regionId}`,
-          type: 'group',
-          online: true,
-          children: []
-        }
-        org.children.push(group)
-      }
-      group.children.push({
-        id: String(device.id),
-        name: device.name,
-        type: 'camera',
-        online: device.status === 'active',
-        ip: device.ip_address || ''
-      })
-    })
-    deviceTreeData.value = Array.from(orgMap.values())
+    const res = await getDeviceGroupTree() as any
+    const tree = res || []
+    deviceTreeData.value = convertTreeData(tree)
   } catch (e) {
-    console.error('Failed to fetch devices:', e)
+    console.error('Failed to fetch device tree:', e)
     deviceTreeData.value = []
   } finally {
     loading.devices = false
@@ -331,25 +311,8 @@ onMounted(() => {
   fetchDeployments()
   fetchAlgorithms()
   fetchServices()
-  fetchDevices()
+  fetchDeviceTree()
 })
-
-interface DeploymentItem {
-  id: number
-  name: string
-  deviceIds: number[]
-  algorithmId: number
-  serviceId: number
-  schedule: { [key: number]: Array<{ start: string; end: string }> }
-  status: string
-  createTime: string
-}
-
-interface ServiceOption {
-  id: number
-  name: string
-  address: string
-}
 
 const weekDays = [
   { key: 1, label: '周一' },
@@ -362,7 +325,7 @@ const weekDays = [
 ]
 
 const searchName = ref('')
-const deviceSearch = ref('')
+const deviceTreeKey = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(10)
 
@@ -381,6 +344,27 @@ const pagedData = computed(() => {
 const getAlgorithmName = (id: number) => {
   const algo = algorithms.value.find((a: { id: number }) => a.id === id)
   return algo?.name || '-'
+}
+
+const deviceNameMap = computed(() => {
+  const map = new Map<number, string>()
+  function walk(nodes: DeviceNode[]) {
+    for (const node of nodes) {
+      if (node.type === 'device') {
+        map.set(Number(node.id), node.name)
+      }
+      if (node.children) {
+        walk(node.children)
+      }
+    }
+  }
+  walk(deviceTreeData.value)
+  return map
+})
+
+function formatDeviceNames(deviceIds: number[]): string {
+  if (!deviceIds || deviceIds.length === 0) return '-'
+  return deviceIds.map(id => deviceNameMap.value.get(id) || `设备${id}`).join(', ')
 }
 
 const onStatusChange = async (row: DeploymentItem) => {
@@ -411,7 +395,7 @@ const form: {
   name: string
   algorithmId: number | null
   selectedServices: ServiceOption[]
-  selectedDevices: number[]
+  selectedDevices: string[]
   schedule: { [key: number]: Array<{ start: string; end: string }> }
 } = reactive({
   name: '',
@@ -442,13 +426,21 @@ const openModal = (type: 'add' | 'edit', row?: DeploymentItem) => {
       name: row.name,
       algorithmId: row.algorithmId,
       selectedServices: selectedService,
-      selectedDevices: [...row.deviceIds],
+      selectedDevices: row.deviceIds.map(String),
       schedule: JSON.parse(JSON.stringify(row.schedule))
     })
   } else {
     editingId.value = null
     dialogTitle.value = '新建布控'
+    Object.assign(form, {
+      name: '',
+      algorithmId: null,
+      selectedServices: [],
+      selectedDevices: [],
+      schedule: defaultSchedule()
+    })
   }
+  deviceTreeKey.value++
   dialogVisible.value = true
 }
 
@@ -460,8 +452,12 @@ const handleServiceSelection = (selection: ServiceOption[]) => {
 }
 
 const handleDeviceSelect = (node: any, checked: boolean) => {
+  // Only collect leaf device nodes
+  if (node.level !== 'device') return
   if (checked) {
-    form.selectedDevices.push(node.id)
+    if (!form.selectedDevices.includes(node.id)) {
+      form.selectedDevices.push(node.id)
+    }
   } else {
     const idx = form.selectedDevices.indexOf(node.id)
     if (idx > -1) form.selectedDevices.splice(idx, 1)
@@ -490,13 +486,17 @@ const handleSubmit = async () => {
   const valid = await (formRef.value as any).validate().catch(() => false)
   if (!valid) return
 
+  const payload = {
+    name: form.name,
+    algorithm_id: form.algorithmId,
+    service_id: form.selectedServices[0]?.id,
+    device_ids: form.selectedDevices.map((id: string) => Number(id)),
+    schedule: form.schedule
+  }
+
   if (editingId.value) {
     try {
-      await deploymentApi.update(editingId.value, {
-        name: form.name,
-        algorithm_id: form.algorithmId,
-        service_id: form.selectedServices[0]?.id
-      })
+      await deploymentApi.update(editingId.value, payload)
       ElMessage.success('编辑成功')
       await fetchDeployments()
     } catch (e) {
@@ -504,13 +504,7 @@ const handleSubmit = async () => {
     }
   } else {
     try {
-      await deploymentApi.create({
-        name: form.name,
-        algorithm_id: form.algorithmId,
-        service_id: form.selectedServices[0]?.id,
-        status: 'active',
-        algorithm_status: 'running'
-      })
+      await deploymentApi.create({ ...payload, status: 'active', algorithm_status: 'running' })
       ElMessage.success('创建成功')
       await fetchDeployments()
     } catch (e) {

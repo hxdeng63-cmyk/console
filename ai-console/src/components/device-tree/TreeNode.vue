@@ -27,9 +27,8 @@
       </span>
       <span v-else-if="mode === 'checkbox'" class="checkbox-select">
         <el-checkbox
-          :model-value="checkedKeys.has(node.id)"
+          v-model="isChecked"
           @click.stop
-          @change="handleCheckboxChange"
         >&nbsp;</el-checkbox>
       </span>
 
@@ -55,7 +54,7 @@
         :mode="mode"
         :level="level + 1"
         @node-click="$emit('node-click', $event)"
-        @node-check="$emit('node-check', $event, checked)"
+        @node-check="(...args) => $emit('node-check', ...args)"
         @toggle-expand="$emit('toggle-expand', $event)"
       />
     </div>
@@ -63,6 +62,7 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { ArrowRight, OfficeBuilding, Guide, Monitor } from '@element-plus/icons-vue'
 import type { DeviceNode } from './useDeviceTree'
 
@@ -95,9 +95,12 @@ function handleRadioChange() {
   emit('node-click', props.node)
 }
 
-function handleCheckboxChange(checked: boolean) {
-  emit('node-check', props.node, checked)
-}
+const isChecked = computed({
+  get: () => props.checkedKeys.has(props.node.id),
+  set: (val: boolean) => {
+    emit('node-check', props.node, val)
+  },
+})
 </script>
 
 <style scoped>

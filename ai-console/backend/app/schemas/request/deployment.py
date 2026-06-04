@@ -4,11 +4,13 @@ from typing import Optional
 
 
 class DeploymentRequest(BaseModel):
-    name: str
+    name: Optional[str] = None
     algorithm_id: Optional[int] = None
     service_id: Optional[int] = None
     status: str = "active"
     algorithm_status: str = "running"
+    device_ids: list[int] = []
+    schedule: Optional[dict] = None
 
 
 class DeploymentResponse(BaseModel):
@@ -24,3 +26,5 @@ class DeploymentResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     deleted_at: Optional[datetime] = None
+    device_ids: list[int] = []
+    schedule: Optional[dict] = None

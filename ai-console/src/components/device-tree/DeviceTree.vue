@@ -44,7 +44,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, watch } from 'vue'
 import { Search, Expand, Fold } from '@element-plus/icons-vue'
 import { useDeviceTree, type DeviceNode } from './useDeviceTree'
 import TreeNode from './TreeNode.vue'
@@ -53,11 +53,13 @@ interface Props {
   data: DeviceNode[]
   mode?: 'radio' | 'checkbox'
   sessionStorageKey?: string
+  defaultCheckedKeys?: string[]
 }
 
 const props = withDefaults(defineProps<Props>(), {
   mode: 'radio',
   sessionStorageKey: 'device-tree-state',
+  defaultCheckedKeys: () => [],
 })
 
 const emit = defineEmits<{
@@ -77,12 +79,12 @@ const {
   expandAll,
   collapseAll,
   handleNodeClick: onNodeClick,
-  handleNodeCheck: onNodeCheck,
   search,
 } = useDeviceTree({
   data: props.data,
   mode: props.mode,
   sessionStorageKey: props.sessionStorageKey,
+  defaultCheckedKeys: props.defaultCheckedKeys,
 })
 
 function handleSearch(value: string) {
@@ -100,13 +102,39 @@ function handleNodeClick(node: DeviceNode) {
 }
 
 function handleNodeCheck(node: DeviceNode, checked: boolean) {
-  emit('node-check', node, checked)
-  onNodeCheck(node, checked)
+  // 收集级联节点：当前节点 + 所有子孙节点
+  const nodesToUpdate: DeviceNode[] = [node]
+
+  function collectChildren(n: DeviceNode) {
+    if (n.children?.length) {
+      for (const child of n.children) {
+        nodesToUpdate.push(child)
+        collectChildren(child)
+      }
+    }
+  }
+  collectChildren(node)
+
+  // 批量更新 checkedKeys，只触发一次响应式变更
+  const nextChecked = new Set(checkedKeys.value)
+  for (const n of nodesToUpdate) {
+    if (checked) {
+      nextChecked.add(n.id)
+    } else {
+      nextChecked.delete(n.id)
+    }
+  }
+  checkedKeys.value = nextChecked
+
+  // 逐个 emit 到父组件
+  for (const n of nodesToUpdate) {
+    emit('node-check', n, checked)
+  }
 }
 
 watch(
   () => props.data,
-  (newData) => {
+  () => {
     localSearchQuery.value = ''
   }
 )

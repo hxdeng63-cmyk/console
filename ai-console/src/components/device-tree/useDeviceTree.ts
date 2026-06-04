@@ -15,13 +15,31 @@ export interface UseDeviceTreeOptions {
   data: DeviceNode[]
   mode?: 'radio' | 'checkbox'
   sessionStorageKey?: string
+  defaultCheckedKeys?: string[]
 }
 
 export function useDeviceTree(options: UseDeviceTreeOptions) {
   const searchQuery = ref('')
   const expandedKeys = ref<Set<string>>(new Set())
   const selectedKeys = ref<Set<string>>(new Set())
-  const checkedKeys = ref<Set<string>>(new Set())
+  const checkedKeys = ref<Set<string>>(new Set(options.defaultCheckedKeys || []))
+  const dataRef = ref<DeviceNode[]>(options.data)
+
+  watch(
+    () => options.data,
+    (newData) => {
+      dataRef.value = newData
+    },
+    { immediate: true }
+  )
+
+  watch(
+    () => options.defaultCheckedKeys,
+    (newKeys) => {
+      checkedKeys.value = new Set(newKeys || [])
+    },
+    { deep: true }
+  )
 
   const sessionKey = options.sessionStorageKey ?? 'device-tree-state'
 
@@ -47,10 +65,6 @@ export function useDeviceTree(options: UseDeviceTreeOptions) {
     }
   }
 
-  function setData(newData: DeviceNode[]) {
-    options.data = newData
-  }
-
   function toggleExpand(key: string) {
     if (expandedKeys.value.has(key)) {
       expandedKeys.value.delete(key)
@@ -71,7 +85,7 @@ export function useDeviceTree(options: UseDeviceTreeOptions) {
         }
       }
     }
-    collectKeys(options.data)
+    collectKeys(dataRef.value)
     expandedKeys.value = keys
     saveExpandedState()
   }
@@ -104,7 +118,7 @@ export function useDeviceTree(options: UseDeviceTreeOptions) {
 
   const filteredData = computed(() => {
     if (!searchQuery.value) {
-      return options.data
+      return dataRef.value
     }
 
     const query = searchQuery.value.toLowerCase()
@@ -127,7 +141,7 @@ export function useDeviceTree(options: UseDeviceTreeOptions) {
       return result
     }
 
-    return filterNodes(options.data)
+    return filterNodes(dataRef.value)
   })
 
   watch(
