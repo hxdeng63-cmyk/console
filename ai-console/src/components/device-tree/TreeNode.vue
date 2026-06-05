@@ -1,5 +1,5 @@
 <template>
-  <div class="tree-node" :style="{ paddingLeft: `${level * 16}px` }">
+  <div class="tree-node" :style="{ paddingLeft: `${level * 12}px` }">
     <div
       class="node-content"
       :class="{
@@ -111,8 +111,8 @@ const isChecked = computed({
 .node-content {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
+  gap: 4px;
+  padding: 6px 8px;
   border-radius: 4px;
   cursor: pointer;
   transition: background 0.2s;

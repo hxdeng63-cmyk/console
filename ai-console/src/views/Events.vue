@@ -3,11 +3,11 @@
     <!-- 第一行筛选 -->
     <div class="toolbar">
       <div class="left-area">
-        <el-select v-model="searchForm.companyName" placeholder="公司名称" style="width: 130px" clearable>
+        <el-select v-model="searchForm.companyName" placeholder="公司名称" style="width: 130px" clearable @change="onCompanyChange">
           <el-option v-for="c in companies" :key="c.id" :label="c.name" :value="c.name" />
         </el-select>
-        <el-select v-model="searchForm.regionName" placeholder="区域" style="width: 100px" clearable>
-          <el-option v-for="r in level1Regions" :key="r.id" :label="r.name" :value="r.name" />
+        <el-select v-model="searchForm.regionName" :placeholder="searchForm.companyName ? '区域' : '请先选择公司'" style="width: 120px" clearable :disabled="!searchForm.companyName">
+          <el-option v-for="r in companyRegions" :key="r.id" :label="r.name" :value="r.name" />
         </el-select>
         <el-select v-model="searchForm.algorithmName" placeholder="算法" style="width: 120px" clearable>
           <el-option label="交通算法" value="交通算法" />
@@ -49,13 +49,15 @@
       </el-radio-group>
     </div>
 
-    <!-- 列表模式表格 -->
-    <el-table v-if="viewMode === 'list'" :data="pagedData" border stripe style="width: 100%" v-loading="loading">
+    <!-- 内容区域 -->
+    <div class="content-wrapper">
+      <!-- 列表模式表格 -->
+      <el-table v-if="viewMode === 'list'" :data="pagedData" border stripe v-loading="loading">
       <el-table-column prop="companyName" label="公司名称" width="100" align="center" />
-      <el-table-column prop="regionName" label="区域" width="70" align="center" />
-      <el-table-column prop="deviceName" label="设备名称" min-width="200" show-overflow-tooltip />
+      <el-table-column prop="regionName" label="区域" width="80" align="center" />
+      <el-table-column prop="deviceName" label="设备名称" min-width="180" show-overflow-tooltip />
       <el-table-column prop="algorithmName" label="算法" width="100" align="center" />
-      <el-table-column prop="eventTypeName" label="事件" width="120" align="center">
+      <el-table-column prop="eventTypeName" label="事件" width="110" align="center">
         <template #default="{ row }">
           <span class="event-type-text">{{ row.eventTypeName }}</span>
         </template>
@@ -65,20 +67,12 @@
           <el-tag :type="getStatusType(row.processStatus)" size="small">{{ row.processStatus }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="reportTime" label="上报时间" width="160" align="center" />
-      <el-table-column label="操作" width="170" fixed="right" align="center">
+      <el-table-column prop="reportTime" label="上报时间" width="155" align="center" />
+      <el-table-column label="操作" width="280" fixed="right" align="center">
         <template #default="{ row }">
           <el-button class="action-edit" size="small" @click="handleDetail(row)">详情查看</el-button>
           <el-button class="action-edit" size="small" @click="handleVideo(row)">视频回放</el-button>
-        </template>
-      </el-table-column>
-      <el-table-column label="处置" width="65" fixed="right" align="center">
-        <template #default="{ row }">
           <el-button class="action-edit" size="small" @click="openDisposeDialog(row)">处置</el-button>
-        </template>
-      </el-table-column>
-      <el-table-column label="考核" width="95" fixed="right" align="center">
-        <template #default="{ row }">
           <el-button class="action-edit" size="small" @click="openPenaltyDialog(row)">开具考核单</el-button>
         </template>
       </el-table-column>
@@ -115,6 +109,7 @@
           </div>
         </div>
       </div>
+    </div>
     </div>
 
     <!-- 分页 -->
@@ -290,6 +285,7 @@ import { ref, computed, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { getDeviceGroupTree } from '@/api/device-groups'
+import { getRegionsByCompany } from '@/api/company-regions'
 
 interface EventItem {
   id: number
@@ -345,7 +341,7 @@ const pageSize = ref(10)
 const totalCount = ref(0)
 
 const companies = ref<any[]>([])
-const level1Regions = ref<any[]>([])
+const companyRegions = ref<any[]>([])
 
 function flattenTree(nodes: any[]): any[] {
   const result: any[] = []
@@ -380,7 +376,21 @@ const fetchEvents = async () => {
 
     const res = await getAlgorithmEvents(params)
     const data = res.data || res
-    tableData.value = data.items || []
+    tableData.value = (data.items || []).map((item: any) => ({
+      id: item.id,
+      companyName: item.company_name || item.companyName || '',
+      regionName: item.region_name || item.regionName || '',
+      deviceName: item.device_name || item.device?.name || item.deviceName || '',
+      algorithmName: item.algorithm_name || item.algorithmName || '',
+      eventTypeName: item.event_type_name || item.event_type?.name || item.eventTypeName || item.event_detail || '',
+      eventDetail: item.event_detail || item.eventDetail || '',
+      processStatus: item.process_status || item.processStatus || '未处置',
+      reportTime: item.report_time || item.reportTime || item.created_at || '',
+      isCompliant: item.is_compliant !== undefined ? (item.is_compliant ? '是' : '否') : (item.isCompliant || '是'),
+      imageUrl: item.image_url || item.imageUrl || '',
+      videoUrl: item.video_url || item.videoUrl || '',
+      detectBox: item.detect_box || item.detectBox || { top: '0%', left: '0%', width: '0%', height: '0%' }
+    }))
     totalCount.value = data.total || 0
   } catch (e) {
     console.error('获取预警事件失败:', e)
@@ -395,7 +405,6 @@ const loadTreeData = async () => {
     const tree = res.data || res || []
     const flat = flattenTree(tree)
     companies.value = flat.filter((n: any) => n.isCompany)
-    level1Regions.value = flat.filter((n: any) => n.isRegion && n.level === 1)
   } catch (e) {
     console.error('获取设备组树失败:', e)
   }
@@ -476,10 +485,29 @@ const handleSearch = () => {
   fetchEvents()
 }
 
+const onCompanyChange = async () => {
+  searchForm.regionName = ''
+  companyRegions.value = []
+  if (!searchForm.companyName) return
+  const company = companies.value.find((c: any) => c.name === searchForm.companyName)
+  if (!company) return
+  try {
+    const res = await getRegionsByCompany(company.id)
+    const data = res.data || res
+    companyRegions.value = (data.items || []).map((item: any) => ({
+      id: item.id,
+      name: item.name
+    }))
+  } catch (e) {
+    console.error('获取公司区域失败:', e)
+  }
+}
+
 const handleReset = () => {
   Object.keys(searchForm).forEach(key => {
     ;(searchForm as any)[key] = ''
   })
+  companyRegions.value = []
   currentPage.value = 1
   fetchEvents()
   ElMessage.success('重置成功')
@@ -557,6 +585,9 @@ const handlePenaltySubmit = async () => {
 <style scoped>
 .events-page {
   padding: 20px;
+  min-width: 1200px;
+  display: flex;
+  flex-direction: column;
 }
 
 .toolbar {
@@ -564,6 +595,7 @@ const handlePenaltySubmit = async () => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 12px;
+  flex-shrink: 0;
 }
 
 .toolbar.secondary {
@@ -581,6 +613,7 @@ const handlePenaltySubmit = async () => {
   display: flex;
   gap: 10px;
   align-items: center;
+  flex-shrink: 0;
 }
 
 .right-area .el-button--primary {
@@ -619,10 +652,21 @@ const handlePenaltySubmit = async () => {
   margin-bottom: 16px;
 }
 
+.content-wrapper {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.content-wrapper :deep(.el-table) {
+  min-width: 1100px;
+}
+
 .pagination-wrapper {
   display: flex;
   justify-content: flex-end;
   margin-top: 16px;
+  flex-shrink: 0;
 }
 
 /* 事件类型文字 */

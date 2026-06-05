@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, func
+from sqlalchemy import select, func, false
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -14,6 +14,26 @@ from app.models.region import Region
 from app.models.algorithm import Algorithm
 
 router = APIRouter(prefix="/algorithm-events", tags=["algorithm-events"])
+
+
+async def _resolve_region_ids(db: AsyncSession, region_name: Optional[str]) -> Optional[list[int]]:
+    """Resolve region name to a list of region IDs including children.
+    Returns None if no region_name provided, empty list if region not found.
+    """
+    if not region_name:
+        return None
+    result = await db.execute(
+        select(Region).where(Region.name == region_name, Region.deleted_at.is_(None))
+    )
+    region = result.scalar_one_or_none()
+    if not region:
+        return []
+    region_ids = [region.id]
+    children_result = await db.execute(
+        select(Region).where(Region.parent_id == region.id, Region.deleted_at.is_(None))
+    )
+    region_ids.extend([c.id for c in children_result.scalars().all()])
+    return region_ids
 
 
 @router.get("", response_model=dict)
@@ -32,6 +52,8 @@ async def list_algorithm_events(
     db: AsyncSession = Depends(get_db),
 ):
     """Return paginated algorithm events in frontend-compatible format."""
+    region_ids = await _resolve_region_ids(db, regionName)
+
     query = (
         select(
             WarningEvent,
@@ -52,8 +74,11 @@ async def list_algorithm_events(
 
     if companyName:
         query = query.where(Organization.name == companyName)
-    if regionName:
-        query = query.where(Region.name == regionName)
+    if region_ids is not None:
+        if region_ids:
+            query = query.where(WarningEvent.region_id.in_(region_ids))
+        else:
+            query = query.where(false())
     if algorithmName:
         query = query.where(Algorithm.name == algorithmName)
     if eventType:
@@ -133,6 +158,8 @@ async def export_algorithm_events(
     import io
     import csv
 
+    region_ids = await _resolve_region_ids(db, regionName)
+
     query = (
         select(
             WarningEvent,
@@ -153,8 +180,11 @@ async def export_algorithm_events(
 
     if companyName:
         query = query.where(Organization.name == companyName)
-    if regionName:
-        query = query.where(Region.name == regionName)
+    if region_ids is not None:
+        if region_ids:
+            query = query.where(WarningEvent.region_id.in_(region_ids))
+        else:
+            query = query.where(false())
     if algorithmName:
         query = query.where(Algorithm.name == algorithmName)
     if eventType:

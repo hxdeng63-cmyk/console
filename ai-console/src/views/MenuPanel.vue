@@ -2,7 +2,7 @@
   <div class="menu-panel">
     <GlobalHeader />
     <div class="panel-content">
-      <router-view />
+      <router-view class="router-view-content" />
     </div>
   </div>
 </template>
@@ -25,5 +25,13 @@ import GlobalHeader from '@/components/layout/GlobalHeader.vue'
   flex: 1;
   overflow: hidden;
   position: relative;
+  display: flex;
+}
+
+.router-view-content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
 }
 </style>

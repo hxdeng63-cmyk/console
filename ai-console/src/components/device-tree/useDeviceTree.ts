@@ -1,4 +1,4 @@
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, isRef, toValue, type MaybeRef } from 'vue'
 
 export interface DeviceNode {
   id: string
@@ -12,7 +12,7 @@ export interface DeviceNode {
 }
 
 export interface UseDeviceTreeOptions {
-  data: DeviceNode[]
+  data: MaybeRef<DeviceNode[]>
   mode?: 'radio' | 'checkbox'
   sessionStorageKey?: string
   defaultCheckedKeys?: string[]
@@ -23,15 +23,23 @@ export function useDeviceTree(options: UseDeviceTreeOptions) {
   const expandedKeys = ref<Set<string>>(new Set())
   const selectedKeys = ref<Set<string>>(new Set())
   const checkedKeys = ref<Set<string>>(new Set(options.defaultCheckedKeys || []))
-  const dataRef = ref<DeviceNode[]>(options.data)
+  const dataRef = ref<DeviceNode[]>(toValue(options.data) ?? [])
 
-  watch(
-    () => options.data,
-    (newData) => {
-      dataRef.value = newData
-    },
-    { immediate: true }
-  )
+  if (isRef(options.data)) {
+    watch(options.data, (newData) => {
+      dataRef.value = newData ?? []
+      loadExpandedState()
+    }, { immediate: true })
+  } else {
+    watch(
+      () => options.data,
+      (newData) => {
+        dataRef.value = (newData as DeviceNode[]) ?? []
+        loadExpandedState()
+      },
+      { immediate: true }
+    )
+  }
 
   watch(
     () => options.defaultCheckedKeys,
@@ -144,12 +152,14 @@ export function useDeviceTree(options: UseDeviceTreeOptions) {
     return filterNodes(dataRef.value)
   })
 
+  // Auto-expand all nodes when data is first loaded
   watch(
-    () => options.data,
-    () => {
-      loadExpandedState()
-    },
-    { immediate: true }
+    dataRef,
+    (newData, oldData) => {
+      if ((!oldData || oldData.length === 0) && newData && newData.length > 0) {
+        expandAll()
+      }
+    }
   )
 
   return {

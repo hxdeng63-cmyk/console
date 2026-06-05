@@ -19,6 +19,7 @@ async def list_regions(
     keyword: str = Query(None),
     parent_id: int = Query(None),
     org_id: int = Query(None),
+    company_id: int = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     query = select(Region).where(Region.deleted_at.is_(None))
@@ -27,8 +28,10 @@ async def list_regions(
         query = query.where(Region.name.ilike(f"%{keyword}%"))
     if parent_id is not None:
         query = query.where(Region.parent_id == parent_id)
-    if org_id is not None:
-        query = query.where(Region.org_id == org_id)
+
+    effective_org_id = company_id if company_id is not None else org_id
+    if effective_org_id is not None:
+        query = query.where(Region.org_id == effective_org_id)
 
     count_query = select(func.count()).select_from(query.subquery())
     total_result = await db.execute(count_query)

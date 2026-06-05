@@ -44,7 +44,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, toRef } from 'vue'
 import { Search, Expand, Fold } from '@element-plus/icons-vue'
 import { useDeviceTree, type DeviceNode } from './useDeviceTree'
 import TreeNode from './TreeNode.vue'
@@ -70,6 +70,8 @@ const emit = defineEmits<{
 const localSearchQuery = ref('')
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
+const dataRef = toRef(props, 'data')
+
 const {
   expandedKeys,
   selectedKeys,
@@ -81,7 +83,7 @@ const {
   handleNodeClick: onNodeClick,
   search,
 } = useDeviceTree({
-  data: props.data,
+  data: dataRef,
   mode: props.mode,
   sessionStorageKey: props.sessionStorageKey,
   defaultCheckedKeys: props.defaultCheckedKeys,

@@ -6,14 +6,6 @@
           <div class="panel-header">
             <h4 class="panel-title">设备列表</h4>
           </div>
-          <div class="filter-row">
-            <el-select v-model="selectedRoad" placeholder="道路" size="small" class="filter-select">
-              <el-option v-for="r in level1Regions" :key="r.id" :label="r.name" :value="r.name" />
-            </el-select>
-            <el-select v-model="selectedSection" placeholder="路段" size="small" class="filter-select">
-              <el-option v-for="r in allRegions" :key="r.id" :label="r.name" :value="r.name" />
-            </el-select>
-          </div>
           <el-input
             v-model="searchText"
             placeholder="输入关键字进行过滤"
@@ -107,7 +99,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { Search, Loading } from '@element-plus/icons-vue'
-import { useRegions } from '@/composables/useRegions'
 import ThreeColumnLayout from '@/components/layout/ThreeColumnLayout.vue'
 import DeviceTree from '@/components/device-tree/DeviceTree.vue'
 import VideoPlayer from '@/components/video/VideoPlayer.vue'
@@ -129,12 +120,8 @@ const currentFile = ref<VideoFile | null>(null)
 const playProgress = ref(0)
 const isPlaying = ref(false)
 const searchText = ref('')
-const selectedRoad = ref('road')
-const selectedSection = ref('G213')
 const selectedAlarmType = ref('all')
 const selectedAlarmLevel = ref('violation')
-
-const { level1Regions, allRegions, loadRegions } = useRegions()
 
 // 设备树数据（从API获取）
 const deviceTreeData = ref<DeviceNode[]>([])
@@ -208,7 +195,6 @@ const fetchDeviceTree = async () => {
 }
 
 onMounted(() => {
-  loadRegions()
   fetchDeviceTree()
   fetchAlarms()
 })

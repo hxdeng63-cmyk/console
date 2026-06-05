@@ -28,43 +28,14 @@
 
     <!-- 中间：视频区域 -->
     <div class="center-panel">
-      <!-- 视频顶部控制栏 -->
-      <div class="video-controls">
-        <div class="protocol-toggle">
-          <el-radio-group v-model="currentProtocol" size="small">
-            <el-radio-button value="flv">flv</el-radio-button>
-            <el-radio-button value="hls">vlc</el-radio-button>
-          </el-radio-group>
-        </div>
-        <div class="video-settings">
-          <el-button text size="small">
-            <el-icon><Setting /></el-icon>
-          </el-button>
-        </div>
-      </div>
-
       <!-- 视频播放器 -->
       <div class="video-container">
-        <VideoPlayer
+        <MonitoringVideoPlayer
           v-if="currentDevice"
-          ref="videoPlayerRef"
-          :url="currentVideoUrl"
-          :protocol="currentProtocol"
-          :enable-dual-protocol="true"
-          :initial-osd-location="currentDevice.name"
+          :src="currentVideoUrl"
         />
         <div v-else class="video-placeholder">
-          <span>等待选择设备...</span>
-        </div>
-
-        <!-- 视频叠加信息 -->
-        <div class="video-overlay-info" v-if="currentDevice">
-          <div class="bandwidth-info">
-            <span>{{ currentBandwidth }}</span>
-          </div>
-          <div class="status-info">
-            <span>当前画面：正常画面</span>
-          </div>
+          <span>请从左侧选择摄像头</span>
         </div>
       </div>
     </div>
@@ -86,6 +57,13 @@
         </el-select>
       </div>
       <div class="alarm-list-container">
+        <div v-if="loadingAlarms" class="alarm-empty">
+          <el-icon class="spin" :size="24" color="var(--text-secondary)"><Loading /></el-icon>
+          <span>加载中...</span>
+        </div>
+        <div v-else-if="filteredAlarms.length === 0" class="alarm-empty">
+          <span>暂无预警事件</span>
+        </div>
         <div
           v-for="alarm in filteredAlarms"
           :key="alarm.id"
@@ -93,99 +71,204 @@
           @click="handleAlarmClick(alarm)"
         >
           <div class="alarm-thumbnail">
-            <img :src="alarm.imageUrl" :alt="alarm.type" />
+            <img v-if="alarm.imageUrl" :src="alarm.imageUrl" :alt="alarm.type" />
+            <div v-else class="alarm-no-image">无图片</div>
             <div class="alarm-detection-box"></div>
-            <div class="alarm-time">{{ alarm.captureTime }}</div>
+            <div class="alarm-time">{{ alarm.time }}</div>
           </div>
           <div class="alarm-info">
-            <div class="alarm-location">{{ alarm.location }}</div>
+            <div class="alarm-location">{{ alarm.deviceName }} {{ alarm.location ? '· ' + alarm.location : '' }}</div>
             <div class="alarm-tags">
-              <span class="alarm-status" :class="alarm.isCompliant ? 'compliant' : 'non-compliant'">
-                {{ alarm.isCompliant ? '合规' : '不合规' }}
+              <span class="alarm-status" :class="alarm.isCompliant === true ? 'compliant' : alarm.isCompliant === false ? 'non-compliant' : 'unknown'">
+                {{ alarm.isCompliant === true ? '合规' : alarm.isCompliant === false ? '不合规' : '未知' }}
               </span>
+              <span class="alarm-process-status">{{ statusText(alarm.processStatus) }}</span>
             </div>
             <div class="alarm-type">{{ alarm.type }}</div>
           </div>
         </div>
       </div>
     </div>
+
+    <!-- 报警详情弹窗 -->
+    <el-dialog
+      v-model="detailDialogVisible"
+      title="报警动态详情"
+      width="800px"
+      :close-on-click-modal="false"
+      class="alarm-detail-dialog"
+    >
+      <div class="detail-container">
+        <div class="detail-image">
+          <img v-if="selectedAlarm?.imageUrl" :src="selectedAlarm.imageUrl" alt="事件图片" />
+          <div v-else class="detail-no-image">无图片</div>
+        </div>
+        <div class="detail-info">
+          <div class="detail-row">
+            <span class="detail-label">事件名称：</span>
+            <span class="detail-value">{{ selectedAlarm?.type || '-' }}</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">事件类型：</span>
+            <span class="detail-value">{{ selectedAlarm?.eventDetail || selectedAlarm?.type || '-' }}</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">报警位置：</span>
+            <span class="detail-value">{{ selectedAlarm?.location || '-' }}</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">处理状态：</span>
+            <el-tag :type="statusTagType(selectedAlarm?.processStatus)" size="small">
+              {{ statusText(selectedAlarm?.processStatus || '') }}
+            </el-tag>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">合规状态：</span>
+            <span
+              class="detail-value"
+              :class="selectedAlarm?.isCompliant === true ? 'text-success' : selectedAlarm?.isCompliant === false ? 'text-danger' : 'text-secondary'"
+            >
+              {{ selectedAlarm?.isCompliant === true ? '合规' : selectedAlarm?.isCompliant === false ? '不合规' : '未知' }}
+            </span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">报警时间：</span>
+            <span class="detail-value">{{ selectedAlarm?.time || '-' }}</span>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="detailDialogVisible = false">关闭</el-button>
+        <el-button type="primary" @click="handleVideoPlayback">视频回放</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 视频回放弹窗 -->
+    <el-dialog
+      v-model="videoDialogVisible"
+      title="视频回放"
+      width="800px"
+      :close-on-click-modal="false"
+      class="video-playback-dialog"
+    >
+      <div class="video-playback-container">
+        <video
+          v-if="alarmVideoUrl"
+          :src="alarmVideoUrl"
+          controls
+          autoplay
+          style="width: 100%; max-height: 500px;"
+        />
+        <div v-else class="video-playback-empty">暂无视频</div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import { Search, Setting } from '@element-plus/icons-vue'
-import VideoPlayer from '@/components/video/VideoPlayer.vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { Search, Loading } from '@element-plus/icons-vue'
+import MonitoringVideoPlayer from '@/components/monitor/MonitoringVideoPlayer.vue'
 import DeviceTree from '@/components/device-tree/DeviceTree.vue'
-import { getDevices } from '@/api/devices'
+import { getDeviceGroupTree } from '@/api/device-groups'
+import { getList as getWarningEvents } from '@/api/warning-events'
 import type { DeviceNode } from '@/components/device-tree/useDeviceTree'
 
 const searchQuery = ref('')
 const currentDevice = ref<DeviceNode | null>(null)
-const currentProtocol = ref<'flv' | 'hls'>('flv')
-const videoPlayerRef = ref<InstanceType<typeof VideoPlayer> | null>(null)
 const alarmTypeFilter = ref('all')
 const alarmStatusFilter = ref('all')
 const deviceTreeData = ref<DeviceNode[]>([])
+const warningEvents = ref<any[]>([])
+const loadingAlarms = ref(false)
+let refreshTimer: ReturnType<typeof setInterval> | null = null
+const detailDialogVisible = ref(false)
+const selectedAlarm = ref<any>(null)
+const videoDialogVisible = ref(false)
 
-onMounted(async () => {
-  try {
-    const data = await getDevices({ page: 1, page_size: 100 })
-    const devices = data.items || []
-    // Transform flat device list to tree: org -> region -> device
-    const orgMap = new Map<number, Map<number, DeviceNode[]>>()
-    for (const device of devices) {
-      const orgId = device.org_id || 0
-      const regionId = device.region_id || 0
-      if (!orgMap.has(orgId)) {
-        orgMap.set(orgId, new Map())
-      }
-      const regionMap = orgMap.get(orgId)!
-      if (!regionMap.has(regionId)) {
-        regionMap.set(regionId, [])
-      }
-      regionMap.get(regionId)!.push({
-        id: String(device.id),
-        name: device.name,
-        type: 'camera',
-        online: device.status === 'active',
-        ip: device.device_code || ''
-      })
-    }
-    const tree: DeviceNode[] = []
-    for (const [orgId, regionMap] of orgMap) {
-      const orgNode: DeviceNode = {
-        id: `org-${orgId}`,
-        name: `Organization ${orgId}`,
-        type: 'org',
-        online: true,
-        children: []
-      }
-      for (const [regionId, children] of regionMap) {
-        orgNode.children!.push({
-          id: `group-${regionId}`,
-          name: `Region ${regionId}`,
-          type: 'group',
-          online: true,
-          children
-        })
-      }
-      tree.push(orgNode)
-    }
-    deviceTreeData.value = tree
-  } catch (error) {
-    console.error('Failed to load devices:', error)
-  }
+const alarmVideoUrl = computed(() => {
+  return selectedAlarm.value?.videoUrl || ''
 })
+
+function handleVideoPlayback() {
+  videoDialogVisible.value = true
+}
+
+// Convert /device-groups/tree response to DeviceNode format
+const convertTreeData = (nodes: any[]): DeviceNode[] => {
+  return nodes.map((node: any) => {
+    const converted: DeviceNode = {
+      id: String(node.id),
+      name: node.name,
+      type: node.level === 'device' ? 'device' : 'org',
+      online: node.status === 'active' || node.status === 'online',
+      children: node.children ? convertTreeData(node.children) : undefined,
+      level: node.level,
+    }
+    return converted
+  })
+}
 
 const currentVideoUrl = computed(() => {
   if (!currentDevice.value) return ''
-  return `ws://localhost:8080/stream/${currentDevice.value.id}`
+  return `/monitoring/${encodeURIComponent(currentDevice.value.name)}.mp4`
 })
 
-const currentBandwidth = computed(() => {
-  // 模拟带宽显示
-  return '1560.27 kb/s'
+const fetchWarningEvents = async () => {
+  loadingAlarms.value = true
+  try {
+    const res: any = await getWarningEvents({ page: 1, page_size: 10, sort: '-created_at' })
+    const items = res.items || []
+    warningEvents.value = items.map((item: any) => ({
+      id: item.id,
+      time: item.time || '',
+      type: item.eventType || item.eventDetail || '未知事件',
+      eventDetail: item.eventDetail || '',
+      deviceName: item.cameraName || '',
+      location: item.location || '',
+      processStatus: item.status || 'pending',
+      imageUrl: item.imageUrl || '',
+      videoUrl: item.videoUrl || '',
+      isCompliant: item.isCompliant,
+      level: item.level || 'low',
+    }))
+  } catch (error) {
+    console.error('Failed to fetch warning events:', error)
+    warningEvents.value = []
+  } finally {
+    loadingAlarms.value = false
+  }
+}
+
+const startAutoRefresh = () => {
+  if (refreshTimer) clearInterval(refreshTimer)
+  refreshTimer = setInterval(() => {
+    fetchWarningEvents()
+  }, 30000)
+}
+
+const stopAutoRefresh = () => {
+  if (refreshTimer) {
+    clearInterval(refreshTimer)
+    refreshTimer = null
+  }
+}
+
+onMounted(async () => {
+  try {
+    const res = await getDeviceGroupTree() as any
+    const tree = res || []
+    deviceTreeData.value = convertTreeData(tree)
+  } catch (error) {
+    console.error('Failed to load device tree:', error)
+    deviceTreeData.value = []
+  }
+  await fetchWarningEvents()
+  startAutoRefresh()
+})
+
+onUnmounted(() => {
+  stopAutoRefresh()
 })
 
 const filteredDeviceTree = computed(() => {
@@ -210,31 +293,64 @@ const filteredDeviceTree = computed(() => {
 })
 
 const filteredAlarms = computed<any[]>(() => {
-  return []
+  let result = warningEvents.value
+  if (alarmTypeFilter.value !== 'all') {
+    result = result.filter((a) => (alarmTypeFilter.value === 'danger' ? !a.isCompliant : a.isCompliant))
+  }
+  if (alarmStatusFilter.value !== 'all') {
+    result = result.filter((a) =>
+      alarmStatusFilter.value === 'compliant'
+        ? a.isCompliant === true
+        : a.isCompliant === false
+    )
+  }
+  return result
 })
 
 function handleDeviceClick(node: DeviceNode) {
-  if (node.type === 'camera' || node.type === 'device') {
+  if (node.type === 'device') {
     currentDevice.value = node
   }
 }
 
 function handleAlarmClick(alarm: any) {
-  console.log('Alarm clicked:', alarm)
+  selectedAlarm.value = alarm
+  detailDialogVisible.value = true
+}
+
+function statusText(status: string) {
+  const map: Record<string, string> = {
+    pending: '待处理',
+    processing: '处理中',
+    resolved: '已解决',
+    ignored: '已忽略',
+  }
+  return map[status] || status
+}
+
+function statusTagType(status: string): string {
+  const map: Record<string, string> = {
+    pending: 'warning',
+    processing: 'primary',
+    resolved: 'success',
+    ignored: 'info',
+  }
+  return map[status] || ''
 }
 </script>
 
 <style scoped>
 .monitor-single {
   display: flex;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   background: var(--bg-primary);
 }
 
 /* 左侧面板 */
 .left-panel {
-  width: 280px;
-  min-width: 280px;
+  width: 350px;
+  min-width: 350px;
   background: var(--bg-secondary);
   border-right: 1px solid var(--border-color);
   display: flex;
@@ -274,32 +390,6 @@ function handleAlarmClick(alarm: any) {
   background: var(--bg-primary);
 }
 
-.video-controls {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
-  background: rgba(0, 20, 40, 0.8);
-  border-bottom: 1px solid var(--border-color);
-}
-
-.protocol-toggle :deep(.el-radio-button__inner) {
-  background: rgba(0, 30, 60, 0.8);
-  border-color: var(--border-color);
-  color: var(--text-secondary);
-}
-
-.protocol-toggle :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
-  background: var(--primary-color);
-  border-color: var(--primary-color);
-  color: rgba(180, 210, 235, 0.85);
-}
-
-.video-settings {
-  display: flex;
-  gap: 8px;
-}
-
 .video-container {
   flex: 1;
   position: relative;
@@ -315,26 +405,6 @@ function handleAlarmClick(alarm: any) {
   justify-content: center;
   color: rgba(232, 244, 255, 0.3);
   font-size: 16px;
-}
-
-.video-overlay-info {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  padding: 10px 16px;
-  display: flex;
-  justify-content: space-between;
-  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.6), transparent);
-  pointer-events: none;
-}
-
-.bandwidth-info,
-.status-info {
-  font-size: 12px;
-  font-family: 'Courier New', monospace;
-  color: var(--tech-accent);
-  text-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
 }
 
 /* 右侧面板 */
@@ -445,8 +515,167 @@ function handleAlarmClick(alarm: any) {
   border: 1px solid var(--el-color-danger);
 }
 
+.alarm-status.unknown {
+  background: rgba(128, 128, 128, 0.2);
+  color: var(--text-secondary);
+  border: 1px solid var(--text-secondary);
+}
+
 .alarm-type {
   font-size: 11px;
   color: var(--text-secondary);
+}
+
+.alarm-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  gap: 8px;
+}
+
+.alarm-no-image {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 20, 40, 0.6);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.alarm-process-status {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 2px;
+  background: rgba(0, 100, 180, 0.2);
+  color: var(--primary-color);
+  border: 1px solid var(--primary-color);
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* 报警详情弹窗 */
+:deep(.alarm-detail-dialog .el-dialog__header) {
+  margin-right: 0;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+:deep(.alarm-detail-dialog .el-dialog__title) {
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 500;
+}
+
+:deep(.alarm-detail-dialog .el-dialog__body) {
+  padding: 20px;
+}
+
+.detail-container {
+  display: flex;
+  gap: 20px;
+}
+
+.detail-image {
+  flex: 1;
+  min-width: 0;
+  height: 320px;
+  background: #000;
+  border-radius: 4px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.detail-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.detail-no-image {
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.detail-info {
+  width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.detail-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.detail-label {
+  color: var(--text-secondary);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.detail-value {
+  color: var(--text-primary);
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.text-success {
+  color: var(--el-color-success);
+}
+
+.text-danger {
+  color: var(--el-color-danger);
+}
+
+.text-secondary {
+  color: var(--text-secondary);
+}
+
+/* 视频回放弹窗 */
+:deep(.video-playback-dialog .el-dialog__header) {
+  margin-right: 0;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+:deep(.video-playback-dialog .el-dialog__title) {
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 500;
+}
+
+:deep(.video-playback-dialog .el-dialog__body) {
+  padding: 0;
+  background: #000;
+}
+
+.video-playback-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+}
+
+.video-playback-empty {
+  padding: 40px;
+  color: var(--text-secondary);
+  font-size: 14px;
 }
 </style>

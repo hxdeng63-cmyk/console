@@ -3,11 +3,11 @@
     <!-- 顶部筛选面板 -->
     <div class="filter-panel">
       <div class="filter-row">
-        <el-select v-model="filterForm.org_id" placeholder="选择公司" size="default" clearable>
+        <el-select v-model="filterForm.org_id" placeholder="选择公司" size="default" clearable @change="onCompanyChange">
           <el-option v-for="c in companies" :key="c.id" :label="c.name" :value="c.id" />
         </el-select>
-        <el-select v-model="filterForm.region_id" placeholder="选择区域" size="default" clearable>
-          <el-option v-for="r in allRegions" :key="r.id" :label="r.name" :value="r.id" />
+        <el-select v-model="filterForm.region_id" :placeholder="filterForm.org_id ? '选择区域' : '请先选择公司'" size="default" clearable :disabled="!filterForm.org_id">
+          <el-option v-for="r in companyRegions" :key="r.id" :label="r.name" :value="r.id" />
         </el-select>
         <el-date-picker v-model="filterForm.startDate" type="date" placeholder="开始日期" size="default" />
         <el-date-picker v-model="filterForm.endDate" type="date" placeholder="结束日期" size="default" />
@@ -118,6 +118,7 @@ import {
   getEventTrendStats
 } from '@/api/event-stats'
 import { useRegions } from '@/composables/useRegions'
+import { getRegionsByCompany } from '@/api/company-regions'
 
 echarts.use([BarChart, PieChart, LineChart, GaugeChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, CanvasRenderer])
 
@@ -133,7 +134,25 @@ const filterForm = reactive({
   event_type_id: null as number | null
 })
 
-const { companies, allRegions, loadRegions, getRegionWithDescendants } = useRegions()
+const { companies, loadRegions, getRegionWithDescendants } = useRegions()
+
+const companyRegions = ref<any[]>([])
+
+const onCompanyChange = async () => {
+  filterForm.region_id = null
+  companyRegions.value = []
+  if (!filterForm.org_id) return
+  try {
+    const res = await getRegionsByCompany(filterForm.org_id)
+    const data = res.data || res
+    companyRegions.value = (data.items || []).map((item: any) => ({
+      id: item.id,
+      name: item.name
+    }))
+  } catch (e) {
+    console.error('获取公司区域失败:', e)
+  }
+}
 
 // Reactive state for API data
 const todayStats = ref({ total: 0, items: [] as { name: string; value: number }[] })

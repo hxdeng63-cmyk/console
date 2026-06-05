@@ -1,6 +1,5 @@
 import asyncio
 import sys
-import random
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -13,8 +12,11 @@ from app.models.organization import Organization
 from app.models.region import Region
 from app.models.device import Device
 
-# 道路编号池
-ROAD_CODES = ["S201", "G213", "G6", "S104", "G109", "S202", "G0611"]
+# 校园/园区场景的区域模板：一级区域 -> 二级区域
+CAMPUS_TEMPLATE = [
+    {"name": "大学城南", "children": ["南区"]},
+    {"name": "大学城北", "children": ["北区"]},
+]
 
 
 async def seed_regions():
@@ -41,32 +43,23 @@ async def seed_regions():
         for company in companies:
             print(f"Seeding regions for company: {company.name} (id={company.id})")
 
-            # 为每个公司随机选择 3 个道路编号
-            selected_roads = random.sample(ROAD_CODES, min(3, len(ROAD_CODES)))
-
-            for i, road_code in enumerate(selected_roads):
+            for i, area in enumerate(CAMPUS_TEMPLATE):
                 # 创建一级区域
                 region = Region(
-                    name=road_code,
-                    code=road_code,
+                    name=area["name"],
+                    code=area["name"],
                     parent_id=None,
                     org_id=company.id,
                     level=1,
                     sort=i + 1,
-                    remark=f"{road_code}沿线"
+                    remark=f"{area['name']}片区"
                 )
                 db.add(region)
                 await db.flush()  # 获取 region.id
                 total_regions += 1
 
-                # 随机创建 1-3 个子区域
-                num_children = random.randint(1, 3)
-                for j in range(num_children):
-                    # 随机桩号：K{100-900}+{100-900}
-                    start_km = random.randint(100, 900)
-                    end_km = random.randint(100, 900)
-                    child_name = f"{road_code}-K{start_km}+{end_km}"
-
+                # 创建二级区域
+                for j, child_name in enumerate(area["children"]):
                     child_region = Region(
                         name=child_name,
                         code=child_name,
@@ -74,7 +67,7 @@ async def seed_regions():
                         org_id=company.id,
                         level=2,
                         sort=j + 1,
-                        remark=f"{road_code}路段"
+                        remark=f"{area['name']}下属区域"
                     )
                     db.add(child_region)
                     total_regions += 1

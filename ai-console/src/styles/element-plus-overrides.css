@@ -309,6 +309,17 @@
   color: rgba(180, 210, 235, 0.7) !important;
 }
 
+/* 修复 el-select disabled 状态在暗色主题下的白底问题 */
+/* Element Plus 2.6+ 使用 .el-select__wrapper 而非 .el-input__wrapper */
+.el-select__wrapper.is-disabled {
+  background: rgba(0, 20, 50, 0.4) !important;
+  box-shadow: 0 0 0 1px rgba(0, 229, 255, 0.15) inset !important;
+}
+
+.el-select__wrapper.is-disabled .el-select__placeholder {
+  color: rgba(180, 210, 235, 0.35) !important;
+}
+
 /* 输入框聚焦 */
 .el-input__wrapper.is-focus {
   box-shadow: 0 0 0 2px #00E5FF, 0 0 20px rgba(0, 229, 255, 0.3), inset 0 0 15px rgba(0, 229, 255, 0.1) !important;

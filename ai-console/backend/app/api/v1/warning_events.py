@@ -27,6 +27,8 @@ class WarningEventItem(BaseModel):
     imageUrl: Optional[str] = None
     deviceId: Optional[int] = None
     eventDetail: Optional[str] = None
+    isCompliant: Optional[bool] = None
+    videoUrl: Optional[str] = None
 
 
 @router.get("", response_model=dict)
@@ -97,6 +99,8 @@ async def list_warning_events(
             "imageUrl": event.image_url,
             "deviceId": event.device_id,
             "eventDetail": event.event_detail,
+            "isCompliant": event.is_compliant,
+            "videoUrl": event.video_url,
         })
 
     return {
@@ -145,6 +149,8 @@ async def get_warning_event(item_id: int, db: AsyncSession = Depends(get_db)):
         imageUrl=event.image_url,
         deviceId=event.device_id,
         eventDetail=event.event_detail,
+        isCompliant=event.is_compliant,
+        videoUrl=event.video_url,
     )
 
 
