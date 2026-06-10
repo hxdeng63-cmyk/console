@@ -81,11 +81,11 @@ const emit = defineEmits<{
   (e: 'canvas-ref', ref: HTMLCanvasElement | null): void
 }>()
 
-const videoRef = ref<HTMLVideoElement | null>(null)
-const canvasRef = ref<HTMLCanvasElement | null>(null)
 const currentTime = ref('')
 
 const {
+  videoRef,
+  canvasRef,
   isLoading,
   hasError,
   errorMessage,
@@ -100,6 +100,8 @@ const {
   retry,
   toggleFullscreen,
   updateOsd,
+  loadMedia,
+  setUrl,
 } = useVideoPlayer({
   url: props.url,
   protocol: props.protocol,
@@ -108,6 +110,13 @@ const {
 
 watch([() => props.initialOsdText, () => props.initialOsdLocation], () => {
   updateOsd(props.initialOsdText, props.initialOsdLocation)
+})
+
+watch(() => props.url, (newUrl) => {
+  if (newUrl) {
+    setUrl(newUrl)
+    loadMedia()
+  }
 })
 
 watch(osdText, (val) => {

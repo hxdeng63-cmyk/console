@@ -30,10 +30,29 @@
     <div class="center-panel">
       <!-- 视频播放器 -->
       <div class="video-container">
-        <MonitoringVideoPlayer
-          v-if="currentDevice"
-          :src="currentVideoUrl"
-        />
+        <template v-if="currentDevice && currentVideoUrl">
+          <VideoPlayer
+            v-if="currentStreamType === 'stream'"
+            :url="currentVideoUrl"
+            protocol="hls"
+            :initial-osd-location="currentDevice?.name || ''"
+          />
+          <video
+            v-else
+            :src="currentVideoUrl"
+            controls
+            autoplay
+            muted
+            style="width: 100%; height: 100%; object-fit: contain;"
+          />
+        </template>
+        <div v-else-if="streamLoading" class="video-placeholder">
+          <el-icon class="spin" :size="32" color="rgba(232, 244, 255, 0.3)"><Loading /></el-icon>
+          <span>正在连接视频流...</span>
+        </div>
+        <div v-else-if="streamError" class="video-placeholder">
+          <span style="color: #FF006E;">无法连接视频流，请检查设备配置</span>
+        </div>
         <div v-else class="video-placeholder">
           <span>请从左侧选择摄像头</span>
         </div>
@@ -166,9 +185,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { Search, Loading } from '@element-plus/icons-vue'
-import MonitoringVideoPlayer from '@/components/monitor/MonitoringVideoPlayer.vue'
+import VideoPlayer from '@/components/video/VideoPlayer.vue'
 import DeviceTree from '@/components/device-tree/DeviceTree.vue'
 import { getDeviceGroupTree } from '@/api/device-groups'
 import { getList as getWarningEvents } from '@/api/warning-events'
@@ -181,6 +200,10 @@ const alarmStatusFilter = ref('all')
 const deviceTreeData = ref<DeviceNode[]>([])
 const warningEvents = ref<any[]>([])
 const loadingAlarms = ref(false)
+const deviceStreamMap = ref<Record<string, string>>({})
+const deviceStreamType = ref<Record<string, 'local' | 'stream'>>({})
+const streamLoading = ref(false)
+const streamError = ref(false)
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 const detailDialogVisible = ref(false)
 const selectedAlarm = ref<any>(null)
@@ -211,7 +234,12 @@ const convertTreeData = (nodes: any[]): DeviceNode[] => {
 
 const currentVideoUrl = computed(() => {
   if (!currentDevice.value) return ''
-  return `/monitoring/${encodeURIComponent(currentDevice.value.name)}.mp4`
+  return deviceStreamMap.value[currentDevice.value.id] || ''
+})
+
+const currentStreamType = computed(() => {
+  if (!currentDevice.value) return 'stream'
+  return deviceStreamType.value[currentDevice.value.id] || 'stream'
 })
 
 const fetchWarningEvents = async () => {
@@ -267,6 +295,16 @@ onMounted(async () => {
   startAutoRefresh()
 })
 
+watch(deviceTreeData, async (tree) => {
+  if (tree.length > 0 && !currentDevice.value) {
+    const firstDevice = findFirstDevice(tree)
+    if (firstDevice) {
+      currentDevice.value = firstDevice
+      await switchDeviceStream(firstDevice)
+    }
+  }
+}, { once: true })
+
 onUnmounted(() => {
   stopAutoRefresh()
 })
@@ -307,10 +345,54 @@ const filteredAlarms = computed<any[]>(() => {
   return result
 })
 
-function handleDeviceClick(node: DeviceNode) {
+interface StreamInfo {
+  url: string
+  type: 'local' | 'stream'
+}
+
+async function getDeviceStreamInfo(deviceId: string): Promise<StreamInfo | null> {
+  try {
+    const res = await fetch(`/api/v1/stream/device/${deviceId}/flv`)
+    if (!res.ok) return null
+    const data = await res.json()
+    const mappedType = data.source_type === 'http' || data.source_type === 'stream' ? 'stream' : 'local'
+    return { url: data.flv_url, type: mappedType }
+  } catch {
+    return null
+  }
+}
+
+async function switchDeviceStream(device: DeviceNode) {
+  streamLoading.value = true
+  streamError.value = false
+  const info = await getDeviceStreamInfo(device.id)
+  if (info) {
+    deviceStreamMap.value = { ...deviceStreamMap.value, [device.id]: info.url }
+    deviceStreamType.value = { ...deviceStreamType.value, [device.id]: info.type }
+  } else {
+    streamError.value = true
+  }
+  streamLoading.value = false
+}
+
+async function handleDeviceClick(node: DeviceNode) {
   if (node.type === 'device') {
     currentDevice.value = node
+    if (!deviceStreamMap.value[node.id]) {
+      await switchDeviceStream(node)
+    }
   }
+}
+
+function findFirstDevice(nodes: DeviceNode[]): DeviceNode | null {
+  for (const node of nodes) {
+    if (node.type === 'device') return node
+    if (node.children) {
+      const found = findFirstDevice(node.children)
+      if (found) return found
+    }
+  }
+  return null
 }
 
 function handleAlarmClick(alarm: any) {

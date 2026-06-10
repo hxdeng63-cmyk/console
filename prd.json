@@ -1,77 +1,27 @@
 {
-  "version": "1.0",
-  "title": "公司→区域级联筛选",
-  "description": "修正前端筛选器中公司→区域的逻辑关系，使其变为级联筛选，后端新增统一查询接口",
+  "title": "启动 mediamtx 解决 RTMP 设备 502 错误",
   "stories": [
     {
       "id": "US-001",
-      "title": "后端新增 GET /regions?company_id=xxx 接口",
-      "description": "在 regions API 中新增按公司获取区域的接口，返回该公司下所有未删除区域",
-      "priority": 1,
-      "passes": true,
+      "title": "启动 mediamtx 媒体服务器",
+      "description": "执行 start-mediamtx.sh 启动 mediamtx，使端口 8888(HLS) 和 9997(API) 进入监听状态",
       "acceptanceCriteria": [
-        "GET /regions?company_id=xxx 返回该公司下所有未删除区域（含一级和二级）",
-        "未传 company_id 时返回空数组",
-        "返回字段包含 id, name, code, parent_id, level, org_id, sort",
-        "遵循 deleted_at IS NULL 软删除过滤",
-        "py_compile 语法检查通过"
+        "端口 8888 有进程监听",
+        "端口 9997 有进程监听",
+        "mediamtx 进程正在运行"
       ],
-      "files": ["ai-console/backend/app/api/v1/regions.py"]
+      "passes": true
     },
     {
       "id": "US-002",
-      "title": "前端 Events.vue 区域筛选改为级联",
-      "description": "Events.vue 的公司和区域下拉框改为级联：未选公司时区域禁用，选公司后调用新 API 加载区域",
-      "priority": 2,
-      "passes": true,
+      "title": "验证 RTMP 设备流端点正常",
+      "description": "确认 device 54/55 的 /api/v1/stream/device/{id}/flv 不再返回 502",
       "acceptanceCriteria": [
-        "未选公司时区域 el-select 显示 disabled 状态且 placeholder 为'请先选择公司'",
-        "选择公司后区域下拉框启用并调用 /regions?company_id=xxx 加载该公司区域",
-        "切换公司时自动清空已选区域",
-        "区域下拉框选项显示区域名称",
-        "vue-tsc --noEmit 无新增错误"
+        "GET /api/v1/stream/device/54/flv 返回 200 和有效 flv_url",
+        "GET /api/v1/stream/device/55/flv 返回 200 和有效 flv_url",
+        "mediamtx API 中注册了 device_54 和 device_55 的流路径"
       ],
-      "files": ["ai-console/src/views/Events.vue", "ai-console/src/api/company-regions.ts"]
-    },
-    {
-      "id": "US-003",
-      "title": "前端 EventStats.vue 区域筛选改为级联",
-      "description": "EventStats.vue 同步改为与 Events.vue 相同的级联逻辑",
-      "priority": 3,
-      "passes": true,
-      "acceptanceCriteria": [
-        "未选公司时区域 el-select 禁用",
-        "选择公司后区域下拉框启用并加载该公司区域",
-        "切换公司时自动清空已选区域",
-        "vue-tsc --noEmit 无新增错误"
-      ],
-      "files": ["ai-console/src/views/event-stats/EventStats.vue"]
-    },
-    {
-      "id": "US-004",
-      "title": "前端 FileAnalysis.vue 移除死代码",
-      "description": "移除 FileAnalysis.vue 中未使用的 selectedRoad/selectedSection 下拉框及相关代码",
-      "priority": 4,
-      "passes": true,
-      "acceptanceCriteria": [
-        "移除模板中的 selectedRoad / selectedSection el-select",
-        "移除 script 中对应的 ref 定义和导入",
-        "vue-tsc --noEmit 无新增错误"
-      ],
-      "files": ["ai-console/src/views/monitor/FileAnalysis.vue"]
-    },
-    {
-      "id": "US-005",
-      "title": "整体验证",
-      "description": "运行类型检查和语法验证，确保无新增错误",
-      "priority": 5,
-      "passes": true,
-      "acceptanceCriteria": [
-        "后端 py_compile 通过所有修改文件",
-        "前端 vue-tsc --noEmit 无新增错误",
-        "DeviceGroup.vue 未被修改"
-      ],
-      "files": []
+      "passes": true
     }
   ]
 }

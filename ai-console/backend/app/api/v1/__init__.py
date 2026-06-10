@@ -36,6 +36,7 @@ from app.api.v1.event_stats import router as event_stats_router
 from app.api.v1.pt_weight_files import router as pt_weight_files_router
 from app.api.v1.upload import router as upload_router
 from app.api.v1.cleanup_policy import router as cleanup_policy_router
+from app.api.v1.stream import router as stream_router
 
 router = APIRouter()
 
@@ -76,5 +77,6 @@ router.include_router(event_stats_router)
 router.include_router(pt_weight_files_router)
 router.include_router(upload_router)
 router.include_router(cleanup_policy_router)
+router.include_router(stream_router)
 
 __all__ = ["router"]

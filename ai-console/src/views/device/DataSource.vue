@@ -5,11 +5,9 @@
       <div class="search-area">
         <el-input v-model="searchForm.name" placeholder="请输入数据源名称" style="width: 180px" clearable />
         <el-select v-model="searchForm.accessType" placeholder="请选择接入方式" style="width: 160px" clearable>
-          <el-option label="本地" value="本地" />
-          <el-option label="远程" value="远程" />
+          <el-option label="RTMP" value="RTMP" />
           <el-option label="RTSP" value="RTSP" />
-          <el-option label="GB28181" value="GB28181" />
-          <el-option label="ONVIF" value="ONVIF" />
+          <el-option label="HTTP/HTTPS" value="HTTP/HTTPS" />
         </el-select>
         <el-button type="primary" @click="handleSearch">查询</el-button>
       </div>
@@ -132,11 +130,9 @@
           <el-col :span="12">
             <el-form-item label="接入方式" prop="accessType">
               <el-select v-model="form.accessType" placeholder="请选择" style="width: 100%">
-                <el-option label="本地" value="本地" />
-                <el-option label="远程" value="远程" />
+                <el-option label="RTMP" value="RTMP" />
                 <el-option label="RTSP" value="RTSP" />
-                <el-option label="GB28181" value="GB28181" />
-                <el-option label="ONVIF" value="ONVIF" />
+                <el-option label="HTTP/HTTPS" value="HTTP/HTTPS" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -328,7 +324,7 @@ const defaultForm = () => ({
   status: '在线',
   rtspUrl: '',
   pushUrl: '',
-  accessType: '本地',
+  accessType: 'RTMP',
   longitude: '',
   latitude: '',
   dataSourceType: '',

@@ -30,7 +30,7 @@ const router = createRouter({
         {
           path: 'wall',
           component: () => import('../views/monitor/MonitorWall.vue'),
-          meta: { title: '实时监控' }
+          meta: { title: '数字大屏' }
         }
       ]
     },

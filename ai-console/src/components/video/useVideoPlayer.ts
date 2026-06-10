@@ -22,6 +22,7 @@ export function useVideoPlayer(options: UseVideoPlayerOptions) {
   const osdLocation = ref('')
   const currentProtocol = ref<Protocol>(options.protocol)
   const showProtocolToggle = ref(false)
+  const currentUrl = ref(options.url)
 
   let flvPlayer: flvjs.Player | null = null
   let hlsInstance: Hls | null = null
@@ -30,17 +31,21 @@ export function useVideoPlayer(options: UseVideoPlayerOptions) {
   const dualProtocolSupported = computed(() => options.enableDualProtocol ?? false)
 
   function getFlvUrl() {
-    if (currentProtocol.value === 'flv' && options.url) {
-      return options.url
+    if (currentProtocol.value === 'flv' && currentUrl.value) {
+      return currentUrl.value
     }
-    return options.url.replace(/\.(m3u8|mpd)/i, '.flv')
+    return currentUrl.value.replace(/\.(m3u8|mpd)/i, '.flv')
   }
 
   function getHlsUrl() {
-    if (currentProtocol.value === 'hls' && options.url) {
-      return options.url
+    if (currentProtocol.value === 'hls' && currentUrl.value) {
+      return currentUrl.value
     }
-    return options.url.replace(/\.flv$/i, '.m3u8')
+    return currentUrl.value.replace(/\.flv$/i, '.m3u8')
+  }
+
+  function setUrl(url: string) {
+    currentUrl.value = url
   }
 
   function initFlv() {
@@ -90,7 +95,13 @@ export function useVideoPlayer(options: UseVideoPlayerOptions) {
     if (Hls.isSupported()) {
       hlsInstance = new Hls({
         enableWorker: true,
-        lowLatencyMode: true,
+        lowLatencyMode: false,
+        manifestLoadingRetryDelay: 1000,
+        levelLoadingRetryDelay: 1000,
+        fragLoadingRetryDelay: 1000,
+        manifestLoadingMaxRetry: 10,
+        levelLoadingMaxRetry: 10,
+        fragLoadingMaxRetry: 10,
       })
 
       hlsInstance.loadSource(url)
@@ -98,10 +109,16 @@ export function useVideoPlayer(options: UseVideoPlayerOptions) {
 
       hlsInstance.on(Hls.Events.ERROR, (_event, data) => {
         if (data.fatal) {
-          console.error('HLS error:', data)
-          hasError.value = true
-          errorMessage.value = 'HLS playback error'
-          isLoading.value = false
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            hlsInstance?.startLoad()
+          } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            hlsInstance?.recoverMediaError()
+          } else {
+            console.error('HLS fatal error:', data)
+            hasError.value = true
+            errorMessage.value = 'HLS playback error'
+            isLoading.value = false
+          }
         }
       })
 
@@ -216,5 +233,6 @@ export function useVideoPlayer(options: UseVideoPlayerOptions) {
     updateOsd,
     setBandwidthDisplay,
     loadMedia,
+    setUrl,
   }
 }

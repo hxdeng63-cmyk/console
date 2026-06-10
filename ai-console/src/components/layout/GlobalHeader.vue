@@ -75,7 +75,7 @@ interface Tab {
 
 const tabs: Tab[] = [
   { label: '实时监控', path: '/monitor', icon: Monitor },
-  { label: '实时监控', path: '/monitor/wall', icon: Monitor },
+  { label: '数字大屏', path: '/monitor/wall', icon: Monitor },
   { label: '事件统计', path: '/event-stats', icon: DataLine },
   { label: '事件管理', path: '/event-manage', icon: List },
   { label: '布控管理', path: '/deployment', icon: Setting },
