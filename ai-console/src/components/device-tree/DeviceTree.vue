@@ -36,6 +36,7 @@
           @node-click="handleNodeClick"
           @node-check="handleNodeCheck"
           @toggle-expand="toggleExpand"
+          @node-hover="handleNodeHover"
         />
       </template>
       <el-empty v-else description="No devices found" />
@@ -65,6 +66,7 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{
   (e: 'node-click', node: DeviceNode): void
   (e: 'node-check', node: DeviceNode, checked: boolean): void
+  (e: 'node-hover', node: DeviceNode): void
 }>()
 
 const localSearchQuery = ref('')
@@ -101,6 +103,10 @@ function handleSearch(value: string) {
 function handleNodeClick(node: DeviceNode) {
   emit('node-click', node)
   onNodeClick(node)
+}
+
+function handleNodeHover(node: DeviceNode) {
+  emit('node-hover', node)
 }
 
 function handleNodeCheck(node: DeviceNode, checked: boolean) {

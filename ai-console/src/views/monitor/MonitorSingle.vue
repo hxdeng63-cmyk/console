@@ -22,6 +22,7 @@
           :data="filteredDeviceTree"
           mode="radio"
           @node-click="handleDeviceClick"
+          @node-hover="handleNodeHover"
         />
       </div>
     </div>
@@ -30,31 +31,59 @@
     <div class="center-panel">
       <!-- 视频播放器 -->
       <div class="video-container">
-        <template v-if="currentDevice && currentVideoUrl">
+        <div
+          v-for="device in streamPoolStore.hlsDevices"
+          :key="device.id"
+          class="video-wrapper pool-instance"
+          :class="{ active: streamPoolStore.visibleDeviceId === device.id }"
+        >
           <VideoPlayer
-            v-if="currentStreamType === 'stream'"
+            :ref="(el: any) => setPlayerRef(device.id, el)"
+            :url="device.url"
+            protocol="hls"
+            :auto-start="false"
+            :show-overlays="streamPoolStore.visibleDeviceId === device.id"
+            :initial-osd-location="device.name"
+            :device-id="device.id"
+            @canplay="handleVideoCanplay"
+          />
+        </div>
+        <video
+          v-show="isNativeVideoVisible"
+          ref="nativeVideoRef"
+          :src="currentVideoUrl"
+          controls
+          autoplay
+          muted
+          @canplay="handleVideoCanplay"
+          style="width: 100%; height: 100%; object-fit: contain;"
+        />
+
+        <div
+          v-show="isFallbackVideoVisible"
+          class="video-wrapper"
+          style="width: 100%; height: 100%;"
+        >
+          <VideoPlayer
+            ref="fallbackVideoPlayerRef"
             :url="currentVideoUrl"
             protocol="hls"
             :initial-osd-location="currentDevice?.name || ''"
+            @canplay="handleVideoCanplay"
           />
-          <video
-            v-else
-            :src="currentVideoUrl"
-            controls
-            autoplay
-            muted
-            style="width: 100%; height: 100%; object-fit: contain;"
-          />
-        </template>
-        <div v-else-if="streamLoading" class="video-placeholder">
-          <el-icon class="spin" :size="32" color="rgba(232, 244, 255, 0.3)"><Loading /></el-icon>
-          <span>正在连接视频流...</span>
         </div>
-        <div v-else-if="streamError" class="video-placeholder">
-          <span style="color: #FF006E;">无法连接视频流，请检查设备配置</span>
-        </div>
-        <div v-else class="video-placeholder">
-          <span>请从左侧选择摄像头</span>
+
+        <div v-show="!hasVisibleVideo" class="video-placeholder">
+          <template v-if="streamLoading">
+            <el-icon class="spin" :size="32" color="rgba(232, 244, 255, 0.3)"><Loading /></el-icon>
+            <span>正在连接视频流...</span>
+          </template>
+          <template v-else-if="streamError">
+            <span style="color: #FF006E;">无法连接视频流，请检查设备配置</span>
+          </template>
+          <template v-else>
+            <span>请从左侧选择摄像头</span>
+          </template>
         </div>
       </div>
     </div>
@@ -185,13 +214,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { Search, Loading } from '@element-plus/icons-vue'
 import VideoPlayer from '@/components/video/VideoPlayer.vue'
 import DeviceTree from '@/components/device-tree/DeviceTree.vue'
+import { useStreamPoolStore, type PoolDevice } from '@/stores/streamPool'
 import { getDeviceGroupTree } from '@/api/device-groups'
 import { getList as getWarningEvents } from '@/api/warning-events'
 import type { DeviceNode } from '@/components/device-tree/useDeviceTree'
+import type { ComponentPublicInstance } from 'vue'
+
+const streamPoolStore = useStreamPoolStore()
 
 const searchQuery = ref('')
 const currentDevice = ref<DeviceNode | null>(null)
@@ -200,14 +233,69 @@ const alarmStatusFilter = ref('all')
 const deviceTreeData = ref<DeviceNode[]>([])
 const warningEvents = ref<any[]>([])
 const loadingAlarms = ref(false)
-const deviceStreamMap = ref<Record<string, string>>({})
-const deviceStreamType = ref<Record<string, 'local' | 'stream'>>({})
 const streamLoading = ref(false)
 const streamError = ref(false)
+const nativeVideoRef = ref<HTMLVideoElement | null>(null)
+const fallbackVideoPlayerRef = ref<ComponentPublicInstance<any> | null>(null)
+const playerRefs = ref<Map<string, ComponentPublicInstance>>(new Map())
 let refreshTimer: ReturnType<typeof setInterval> | null = null
+
+// 设备流元数据缓存（包含所有设备，用于原生视频播放）
+const deviceStreamMap = ref<Record<string, CachedStreamInfo>>({})
+
+// 延迟测量
+const switchStartTime = ref<number>(0)
+const switchDeviceId = ref<string>('')
+const hasMeasuredLatency = ref(false)
+
+function handleVideoCanplay() {
+  if (hasMeasuredLatency.value || !switchStartTime.value) return
+  hasMeasuredLatency.value = true
+  const latency = performance.now() - switchStartTime.value
+  console.log(`[HotConnection] Device ${switchDeviceId.value} switch latency: ${Math.round(latency)}ms`)
+}
 const detailDialogVisible = ref(false)
 const selectedAlarm = ref<any>(null)
 const videoDialogVisible = ref(false)
+
+interface CachedStreamInfo {
+  url: string
+  type: 'local' | 'stream'
+  sourceType: string
+  rtspUrl?: string
+  streamName?: string
+  cachedAt: number
+}
+
+function setPlayerRef(deviceId: string, el: any) {
+  if (el) {
+    playerRefs.value.set(deviceId, el as ComponentPublicInstance)
+  }
+}
+
+function isDirectVideoUrl(url: string): boolean {
+  return /\.(mp4|webm|ogg|mov)(\?.*)?$/i.test(url)
+}
+
+function mapStreamType(sourceType: string, url: string): 'stream' | 'local' {
+  if ((sourceType === 'http' || sourceType === 'stream') && !isDirectVideoUrl(url)) {
+    return 'stream'
+  }
+  return 'local'
+}
+
+function flattenDevices(nodes: DeviceNode[]): DeviceNode[] {
+  const result: DeviceNode[] = []
+  for (const node of nodes) {
+    if (node.type === 'device') {
+      result.push(node)
+    }
+    if (node.children) {
+      result.push(...flattenDevices(node.children))
+    }
+  }
+  return result
+}
 
 const alarmVideoUrl = computed(() => {
   return selectedAlarm.value?.videoUrl || ''
@@ -220,13 +308,15 @@ function handleVideoPlayback() {
 // Convert /device-groups/tree response to DeviceNode format
 const convertTreeData = (nodes: any[]): DeviceNode[] => {
   return nodes.map((node: any) => {
+    const isDevice = node.level === 'device' || node.device_code !== undefined
     const converted: DeviceNode = {
       id: String(node.id),
       name: node.name,
-      type: node.level === 'device' ? 'device' : 'org',
+      type: isDevice ? 'device' : 'org',
       online: node.status === 'active' || node.status === 'online',
       children: node.children ? convertTreeData(node.children) : undefined,
       level: node.level,
+      deviceCode: node.device_code,
     }
     return converted
   })
@@ -234,13 +324,25 @@ const convertTreeData = (nodes: any[]): DeviceNode[] => {
 
 const currentVideoUrl = computed(() => {
   if (!currentDevice.value) return ''
-  return deviceStreamMap.value[currentDevice.value.id] || ''
+  return deviceStreamMap.value[currentDevice.value.id]?.url || ''
 })
 
 const currentStreamType = computed(() => {
   if (!currentDevice.value) return 'stream'
-  return deviceStreamType.value[currentDevice.value.id] || 'stream'
+  return deviceStreamMap.value[currentDevice.value.id]?.type || 'stream'
 })
+
+const isPoolVideoVisible = computed(() => !!streamPoolStore.visibleDeviceId)
+
+const isNativeVideoVisible = computed(() => {
+  return !!currentDevice.value && !!currentVideoUrl.value && currentStreamType.value !== 'stream'
+})
+
+const isFallbackVideoVisible = computed(() => {
+  return !streamPoolStore.enableHotPool && !!currentDevice.value && !!currentVideoUrl.value && currentStreamType.value === 'stream' && !isDirectVideoUrl(currentVideoUrl.value)
+})
+
+const hasVisibleVideo = computed(() => isPoolVideoVisible.value || isNativeVideoVisible.value || isFallbackVideoVisible.value)
 
 const fetchWarningEvents = async () => {
   loadingAlarms.value = true
@@ -293,20 +395,114 @@ onMounted(async () => {
   }
   await fetchWarningEvents()
   startAutoRefresh()
+
+  const tree = deviceTreeData.value
+  const allDevices = flattenDevices(tree)
+  if (allDevices.length === 0) return
+
+  if (streamPoolStore.enableHotPool) {
+    await initStreamPool(allDevices)
+  } else if (!currentDevice.value) {
+    const firstDevice = allDevices[0]
+    currentDevice.value = firstDevice
+    await switchDeviceStream(firstDevice)
+  }
 })
 
-watch(deviceTreeData, async (tree) => {
-  if (tree.length > 0 && !currentDevice.value) {
-    const firstDevice = findFirstDevice(tree)
+async function initStreamPool(allDevices: DeviceNode[]) {
+  if (allDevices.length === 0) return
+
+  // 复用现有热池（30s 内返回）
+  if (streamPoolStore.hlsDevices.length > 0) {
+    streamPoolStore.cancelRelease()
+    startPoolPlayers()
+    if (!currentDevice.value) {
+      const firstDevice = allDevices.find(d => streamPoolStore.hlsDevices.some(pd => pd.id === d.id)) || allDevices[0]
+      currentDevice.value = firstDevice
+      if (streamPoolStore.hlsDevices.some(d => d.id === firstDevice.id)) {
+        streamPoolStore.setVisible(firstDevice.id)
+      }
+    }
+    return
+  }
+
+  // 批量获取所有设备流地址
+  try {
+    const response = await fetch('/api/v1/stream/devices/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ device_ids: allDevices.map(d => d.id) }),
+    })
+    if (!response.ok) {
+      console.error('Failed to register device streams:', response.status)
+      return
+    }
+    const data = await response.json()
+    const results = data.results || []
+
+    const newMap: Record<string, CachedStreamInfo> = {}
+    const poolDevices: PoolDevice[] = []
+
+    results.forEach((item: any) => {
+      const deviceId = String(item.device_id)
+      const device = allDevices.find(d => d.id === deviceId)
+      if (!item.success) {
+        console.warn(`[StreamPool] Device ${deviceId} registration failed:`, item.error)
+        return
+      }
+
+      const info: CachedStreamInfo = {
+        url: item.flv_url,
+        type: mapStreamType(item.source_type, item.flv_url),
+        sourceType: item.source_type,
+        rtspUrl: item.rtsp_url,
+        streamName: item.stream_name,
+        cachedAt: Date.now(),
+      }
+      newMap[deviceId] = info
+
+      poolDevices.push({
+        id: deviceId,
+        name: device?.name || deviceId,
+        url: item.flv_url,
+        sourceType: item.source_type,
+        streamName: item.stream_name,
+      })
+    })
+
+    deviceStreamMap.value = newMap
+    streamPoolStore.initPool(poolDevices)
+
+    // 延迟启动后台实例，避免并发 burst
+    startPoolPlayers()
+
+    // 默认选中第一个设备
+    const firstDevice = allDevices[0]
     if (firstDevice) {
       currentDevice.value = firstDevice
-      await switchDeviceStream(firstDevice)
+      if (streamPoolStore.hlsDevices.some(d => d.id === firstDevice.id)) {
+        streamPoolStore.setVisible(firstDevice.id)
+      }
     }
+  } catch (error) {
+    console.error('Failed to init stream pool:', error)
   }
-}, { once: true })
+}
+
+function startPoolPlayers() {
+  streamPoolStore.hlsDevices.forEach((device, index) => {
+    setTimeout(() => {
+      const player = playerRefs.value.get(device.id)
+      if (player && typeof (player as any).start === 'function') {
+        ;(player as any).start()
+      }
+    }, index * 200)
+  })
+}
 
 onUnmounted(() => {
   stopAutoRefresh()
+  streamPoolStore.scheduleRelease(30000)
 })
 
 const filteredDeviceTree = computed(() => {
@@ -345,18 +541,124 @@ const filteredAlarms = computed<any[]>(() => {
   return result
 })
 
-interface StreamInfo {
-  url: string
-  type: 'local' | 'stream'
+async function handleDeviceClick(node: DeviceNode) {
+  if (node.type !== 'device') return
+
+  streamError.value = false
+  hasMeasuredLatency.value = false
+
+  if (streamPoolStore.enableHotPool) {
+    await handleHotPoolClick(node)
+  } else {
+    await handleFallbackClick(node)
+  }
 }
 
-async function getDeviceStreamInfo(deviceId: string): Promise<StreamInfo | null> {
+async function handleHotPoolClick(node: DeviceNode) {
+  const isPoolDevice = streamPoolStore.hlsDevices.some(d => d.id === node.id)
+
+  if (isPoolDevice) {
+    const prevId = streamPoolStore.visibleDeviceId
+    if (prevId && prevId !== node.id) {
+      const prevPlayer = playerRefs.value.get(prevId)
+      if (prevPlayer && typeof (prevPlayer as any).stopBackgroundActivity === 'function') {
+        ;(prevPlayer as any).stopBackgroundActivity()
+      }
+    }
+
+    if (fallbackVideoPlayerRef.value) {
+      const player = fallbackVideoPlayerRef.value as any
+      if (typeof player.pauseBuffering === 'function') {
+        player.pauseBuffering()
+      }
+    }
+    if (nativeVideoRef.value) {
+      nativeVideoRef.value.pause()
+    }
+
+    switchStartTime.value = performance.now()
+    switchDeviceId.value = node.id
+    hasMeasuredLatency.value = false
+
+    currentDevice.value = node
+    streamPoolStore.setVisible(node.id)
+
+    const player = playerRefs.value.get(node.id)
+    if (player && typeof (player as any).resumeBackgroundActivity === 'function') {
+      ;(player as any).resumeBackgroundActivity()
+    }
+  } else {
+    // 暂停当前热池实例
+    const prevId = streamPoolStore.visibleDeviceId
+    if (prevId) {
+      const prevPlayer = playerRefs.value.get(prevId)
+      if (prevPlayer && typeof (prevPlayer as any).stopBackgroundActivity === 'function') {
+        ;(prevPlayer as any).stopBackgroundActivity()
+      }
+      streamPoolStore.setVisible(null)
+    }
+
+    if (nativeVideoRef.value) {
+      nativeVideoRef.value.pause()
+    }
+
+    switchStartTime.value = performance.now()
+    switchDeviceId.value = node.id
+    hasMeasuredLatency.value = false
+
+    currentDevice.value = node
+    const info = deviceStreamMap.value[node.id]
+    if (!info) {
+      streamError.value = true
+    }
+  }
+}
+
+async function handleFallbackClick(node: DeviceNode) {
+  streamLoading.value = true
+
+  if (fallbackVideoPlayerRef.value) {
+    const player = fallbackVideoPlayerRef.value as any
+    if (typeof player.pauseBuffering === 'function') {
+      player.pauseBuffering()
+    }
+  }
+  if (nativeVideoRef.value) {
+    nativeVideoRef.value.pause()
+  }
+
+  switchStartTime.value = performance.now()
+  switchDeviceId.value = node.id
+  hasMeasuredLatency.value = false
+
+  currentDevice.value = node
+  const info = await getDeviceStreamInfo(node.id)
+  if (!info) {
+    streamError.value = true
+  }
+  streamLoading.value = false
+}
+
+async function getDeviceStreamInfo(deviceId: string): Promise<CachedStreamInfo | null> {
+  const cached = deviceStreamMap.value[deviceId]
+  if (cached) {
+    return cached
+  }
+
   try {
     const res = await fetch(`/api/v1/stream/device/${deviceId}/flv`)
     if (!res.ok) return null
     const data = await res.json()
-    const mappedType = data.source_type === 'http' || data.source_type === 'stream' ? 'stream' : 'local'
-    return { url: data.flv_url, type: mappedType }
+    const info: CachedStreamInfo = {
+      url: data.flv_url,
+      type: mapStreamType(data.source_type, data.flv_url),
+      sourceType: data.source_type || '',
+      rtspUrl: data.rtsp_url,
+      streamName: data.stream_name,
+      cachedAt: Date.now(),
+    }
+    deviceStreamMap.value = { ...deviceStreamMap.value, [deviceId]: info }
+    return info
   } catch {
     return null
   }
@@ -366,33 +668,14 @@ async function switchDeviceStream(device: DeviceNode) {
   streamLoading.value = true
   streamError.value = false
   const info = await getDeviceStreamInfo(device.id)
-  if (info) {
-    deviceStreamMap.value = { ...deviceStreamMap.value, [device.id]: info.url }
-    deviceStreamType.value = { ...deviceStreamType.value, [device.id]: info.type }
-  } else {
+  if (!info) {
     streamError.value = true
   }
   streamLoading.value = false
 }
 
-async function handleDeviceClick(node: DeviceNode) {
-  if (node.type === 'device') {
-    currentDevice.value = node
-    if (!deviceStreamMap.value[node.id]) {
-      await switchDeviceStream(node)
-    }
-  }
-}
-
-function findFirstDevice(nodes: DeviceNode[]): DeviceNode | null {
-  for (const node of nodes) {
-    if (node.type === 'device') return node
-    if (node.children) {
-      const found = findFirstDevice(node.children)
-      if (found) return found
-    }
-  }
-  return null
+function handleNodeHover(_node: DeviceNode) {
+  // 全热连接模式下，hover 预加载已被页面级热池取代
 }
 
 function handleAlarmClick(alarm: any) {
@@ -477,6 +760,22 @@ function statusTagType(status: string): string {
   position: relative;
   background: #000;
   overflow: hidden;
+}
+
+.video-wrapper {
+  width: 100%;
+  height: 100%;
+}
+
+.video-wrapper.pool-instance {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+}
+
+.video-wrapper.pool-instance.active {
+  z-index: 10;
 }
 
 .video-placeholder {

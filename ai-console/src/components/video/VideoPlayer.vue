@@ -5,17 +5,19 @@
         ref="videoRef"
         class="video-element"
         playsinline
+        :muted="!showOverlays"
+        @canplay="onCanplay"
       ></video>
 
       <canvas ref="canvasRef" class="video-canvas"></canvas>
 
-      <div class="osd-overlay" v-if="osdText || osdLocation">
+      <div class="osd-overlay" v-if="showOverlays && (osdText || osdLocation)">
         <span class="osd-location">{{ osdLocation }}</span>
         <span class="osd-timestamp">{{ currentTime }}</span>
         <span class="osd-text">{{ osdText }}</span>
       </div>
 
-      <div class="bandwidth-display" v-if="bandwidth > 0">
+      <div class="bandwidth-display" v-if="showOverlays && bandwidth > 0">
         <span class="bandwidth-value">{{ formatBandwidth(bandwidth) }}</span>
       </div>
 
@@ -31,7 +33,7 @@
         </div>
       </div>
 
-      <div class="controls-overlay" v-if="!isLoading && !hasError">
+      <div class="controls-overlay" v-if="showOverlays && !isLoading && !hasError">
         <button
           v-if="showProtocolToggle"
           class="control-button protocol-toggle"
@@ -59,8 +61,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useVideoPlayer, type Protocol } from './useVideoPlayer'
+import { useStreamPoolStore } from '@/stores/streamPool'
 
 interface Props {
   url: string
@@ -68,6 +71,9 @@ interface Props {
   enableDualProtocol?: boolean
   initialOsdText?: string
   initialOsdLocation?: string
+  autoStart?: boolean
+  showOverlays?: boolean
+  deviceId?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -75,13 +81,18 @@ const props = withDefaults(defineProps<Props>(), {
   enableDualProtocol: false,
   initialOsdText: '',
   initialOsdLocation: '',
+  autoStart: true,
+  showOverlays: true,
 })
 
 const emit = defineEmits<{
   (e: 'canvas-ref', ref: HTMLCanvasElement | null): void
+  (e: 'canplay'): void
 }>()
 
+const streamPoolStore = useStreamPoolStore()
 const currentTime = ref('')
+const retryTimer = ref<number | null>(null)
 
 const {
   videoRef,
@@ -95,17 +106,21 @@ const {
   osdLocation,
   currentProtocol,
   showProtocolToggle,
-  dualProtocolSupported,
   toggleProtocol,
   retry,
   toggleFullscreen,
   updateOsd,
-  loadMedia,
-  setUrl,
+  switchUrl,
+  pauseBuffering,
+  resumeBuffering,
+  start,
+  stopBackgroundActivity,
+  resumeBackgroundActivity,
 } = useVideoPlayer({
   url: props.url,
   protocol: props.protocol,
   enableDualProtocol: props.enableDualProtocol,
+  autoStart: props.autoStart,
 })
 
 watch([() => props.initialOsdText, () => props.initialOsdLocation], () => {
@@ -113,18 +128,9 @@ watch([() => props.initialOsdText, () => props.initialOsdLocation], () => {
 })
 
 watch(() => props.url, (newUrl) => {
-  if (newUrl) {
-    setUrl(newUrl)
-    loadMedia()
+  if (newUrl && props.autoStart !== false) {
+    switchUrl(newUrl)
   }
-})
-
-watch(osdText, (val) => {
-  osdText.value = val
-})
-
-watch(osdLocation, (val) => {
-  osdLocation.value = val
 })
 
 watch(videoRef, (el) => {
@@ -150,6 +156,42 @@ function formatBandwidth(bps: number): string {
   }
 }
 
+function scheduleAutoRetry() {
+  if (!props.deviceId) return
+  streamPoolStore.setDeviceStatus(props.deviceId, 'error')
+  streamPoolStore.incrementRetry(props.deviceId)
+  const device = streamPoolStore.hlsDevices.find(d => d.id === props.deviceId)
+  const retryCount = device?.retryCount || 0
+  if (retryCount > 5) return
+  const delay = Math.min(1000 * Math.pow(2, retryCount - 1), 10000)
+  retryTimer.value = window.setTimeout(() => {
+    if (!props.deviceId) return
+    streamPoolStore.setDeviceStatus(props.deviceId, 'buffering')
+    retry()
+  }, delay)
+}
+
+function markDeviceReady() {
+  if (!props.deviceId) return
+  streamPoolStore.setDeviceStatus(props.deviceId, 'ready')
+  streamPoolStore.resetRetry(props.deviceId)
+  if (retryTimer.value !== null) {
+    window.clearTimeout(retryTimer.value)
+    retryTimer.value = null
+  }
+}
+
+watch(hasError, (err) => {
+  if (err) {
+    scheduleAutoRetry()
+  }
+})
+
+function onCanplay() {
+  markDeviceReady()
+  emit('canplay')
+}
+
 function updateTimestamp() {
   if (videoRef.value) {
     const video = videoRef.value
@@ -163,15 +205,35 @@ function updateTimestamp() {
 
 let timestampInterval: ReturnType<typeof setInterval> | null = null
 
-onMounted(() => {
+function startTimestampInterval() {
+  if (timestampInterval) return
   updateTimestamp()
   timestampInterval = setInterval(updateTimestamp, 1000)
+}
+
+function stopTimestampInterval() {
+  if (timestampInterval) {
+    clearInterval(timestampInterval)
+    timestampInterval = null
+  }
+}
+
+watch(() => props.showOverlays, (enabled) => {
+  if (enabled !== false) {
+    startTimestampInterval()
+  } else {
+    stopTimestampInterval()
+  }
+})
+
+onMounted(() => {
+  if (props.showOverlays !== false) {
+    startTimestampInterval()
+  }
 })
 
 onUnmounted(() => {
-  if (timestampInterval) {
-    clearInterval(timestampInterval)
-  }
+  stopTimestampInterval()
 })
 
 defineExpose({
@@ -181,6 +243,11 @@ defineExpose({
   toggleFullscreen,
   retry,
   toggleProtocol,
+  pauseBuffering,
+  resumeBuffering,
+  start,
+  stopBackgroundActivity,
+  resumeBackgroundActivity,
 })
 </script>
 

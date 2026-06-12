@@ -64,10 +64,86 @@ async def _find_stream_url(device_id: int, db: AsyncSession) -> tuple[str | None
 @router.get("/device/{device_id}/flv")
 async def get_device_flv_url(device_id: int, db: AsyncSession = Depends(get_db)):
     """根据设备 ID 获取播放地址"""
+    result = await _resolve_device_stream(device_id, db)
+    if result is None:
+        raise HTTPException(status_code=404, detail="该设备无流地址配置")
+    return result
+
+
+@router.post("/devices/register")
+async def register_devices(
+    request: dict,
+    db: AsyncSession = Depends(get_db),
+):
+    """批量注册设备流路径，返回每个设备的播放地址元数据"""
+    device_ids = request.get("device_ids", [])
+    if not device_ids:
+        raise HTTPException(status_code=400, detail="device_ids 不能为空")
+
+    results = []
+    for raw_id in device_ids:
+        try:
+            device_id = int(raw_id)
+        except (ValueError, TypeError):
+            results.append({
+                "device_id": raw_id,
+                "success": False,
+                "error": "无效的设备 ID",
+                "flv_url": None,
+                "source_type": None,
+                "stream_name": None,
+            })
+            continue
+
+        try:
+            info = await _resolve_device_stream(device_id, db)
+            if info is None:
+                results.append({
+                    "device_id": device_id,
+                    "success": False,
+                    "error": "该设备无流地址配置",
+                    "flv_url": None,
+                    "source_type": None,
+                    "stream_name": None,
+                })
+                continue
+
+            results.append({
+                "device_id": device_id,
+                "success": True,
+                "error": None,
+                "flv_url": info["flv_url"],
+                "source_type": info["source_type"],
+                "stream_name": info.get("stream_name"),
+            })
+        except HTTPException as e:
+            results.append({
+                "device_id": device_id,
+                "success": False,
+                "error": e.detail,
+                "flv_url": None,
+                "source_type": None,
+                "stream_name": None,
+            })
+        except Exception as e:
+            results.append({
+                "device_id": device_id,
+                "success": False,
+                "error": f"注册失败: {str(e)}",
+                "flv_url": None,
+                "source_type": None,
+                "stream_name": None,
+            })
+
+    return {"results": results}
+
+
+async def _resolve_device_stream(device_id: int, db: AsyncSession) -> dict | None:
+    """解析设备流地址并注册 MediaMTX 路径（如需要）。返回标准化元数据或 None。"""
     stream_url, access_type = await _find_stream_url(device_id, db)
 
     if not stream_url:
-        raise HTTPException(status_code=404, detail="该设备无流地址配置")
+        return None
 
     # 本地文件路径：直接返回文件 URL，不经过 mediamtx
     if stream_url.startswith("docs/") or stream_url.startswith("/") or access_type == "本地":

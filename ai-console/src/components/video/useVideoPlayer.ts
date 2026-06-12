@@ -8,6 +8,7 @@ export interface UseVideoPlayerOptions {
   url: string
   protocol: Protocol
   enableDualProtocol?: boolean
+  autoStart?: boolean
 }
 
 export function useVideoPlayer(options: UseVideoPlayerOptions) {
@@ -83,14 +84,15 @@ export function useVideoPlayer(options: UseVideoPlayerOptions) {
     })
   }
 
-  function initHls() {
+  function initHls(urlOverride?: string) {
     if (!videoRef.value) return
 
     if (hlsInstance) {
       hlsInstance.destroy()
+      hlsInstance = null
     }
 
-    const url = getHlsUrl()
+    const url = urlOverride || getHlsUrl()
 
     if (Hls.isSupported()) {
       hlsInstance = new Hls({
@@ -102,6 +104,10 @@ export function useVideoPlayer(options: UseVideoPlayerOptions) {
         manifestLoadingMaxRetry: 10,
         levelLoadingMaxRetry: 10,
         fragLoadingMaxRetry: 10,
+        maxBufferLength: 10,
+        maxMaxBufferLength: 15,
+        liveSyncDurationCount: 2,
+        initialLiveManifestSize: 2,
       })
 
       hlsInstance.loadSource(url)
@@ -127,7 +133,8 @@ export function useVideoPlayer(options: UseVideoPlayerOptions) {
       })
 
       hlsInstance.on(Hls.Events.FRAG_LOADED, (_event, data) => {
-        const bitrate = data.frag.duration > 0 ? (data.loaded * 8) / data.frag.duration : 0
+        const loaded = (data as any).stats?.loaded ?? (data as any).loaded ?? 0
+        const bitrate = data.frag.duration > 0 ? (loaded * 8) / data.frag.duration : 0
         if (bitrate > 0) {
           bandwidth.value = bitrate / 1024
         }
@@ -150,6 +157,72 @@ export function useVideoPlayer(options: UseVideoPlayerOptions) {
     }
 
     isLoading.value = false
+  }
+
+  function start() {
+    loadMedia()
+  }
+
+  function stopBackgroundActivity() {
+    if (currentProtocol.value === 'hls' && hlsInstance) {
+      if (typeof (hlsInstance as any).pauseBuffering === 'function') {
+        ;(hlsInstance as any).pauseBuffering()
+      }
+    }
+    if (videoRef.value) {
+      videoRef.value.pause()
+    }
+  }
+
+  function resumeBackgroundActivity() {
+    resumeBuffering()
+    if (currentProtocol.value === 'hls' && hlsInstance) {
+      // 直播流 segment 轮换很快，后台 pause 后 level details 可能已过期；
+      // 重新加载 manifest，让 hls.js 同步到当前直播边缘，避免请求已删除的旧 segment。
+      if (typeof hlsInstance.loadSource === 'function') {
+        hlsInstance.loadSource(getHlsUrl())
+      }
+    }
+    if (videoRef.value) {
+      videoRef.value.play().catch(() => {
+        // Auto-play may be blocked; caller can retry manually
+      })
+    }
+  }
+
+  function switchUrl(url: string) {
+    if (!url || !videoRef.value) return
+    setUrl(url)
+
+    // 跳过直接视频文件（mp4/webm/ogg/mov）—— 这些应由原生 <video> 播放
+    const isDirectVideo = /\.(mp4|webm|ogg|mov)(\?.*)?$/i.test(url)
+    if (isDirectVideo) return
+
+    if (currentProtocol.value === 'flv') {
+      // flv.js 不支持 URL 切换，必须销毁重建
+      if (flvPlayer) {
+        flvPlayer.destroy()
+        flvPlayer = null
+      }
+      initFlv()
+    } else {
+      // hls.js 支持 loadSource() 复用实例
+      if (hlsInstance) {
+        hlsInstance.loadSource(getHlsUrl())
+      } else {
+        initHls(getHlsUrl())
+      }
+    }
+  }
+
+  function pauseBuffering() {
+    stopBackgroundActivity()
+  }
+
+  function resumeBuffering() {
+    if (hlsInstance && currentProtocol.value === 'hls' && typeof (hlsInstance as any).resumeBuffering === 'function') {
+      ;(hlsInstance as any).resumeBuffering()
+    }
   }
 
   function toggleProtocol() {
@@ -186,7 +259,7 @@ export function useVideoPlayer(options: UseVideoPlayerOptions) {
     if (enabled) {
       bandwidthInterval = setInterval(() => {
         if (flvPlayer) {
-          const stats = flvPlayer.getStats()
+          const stats = (flvPlayer as any).getStats?.()
           if (stats?.speed) {
             bandwidth.value = stats.speed
           }
@@ -199,7 +272,9 @@ export function useVideoPlayer(options: UseVideoPlayerOptions) {
   }
 
   onMounted(() => {
-    loadMedia()
+    if (options.autoStart !== false) {
+      loadMedia()
+    }
 
     document.addEventListener('fullscreenchange', () => {
       isFullscreen.value = !!document.fullscreenElement
@@ -234,5 +309,11 @@ export function useVideoPlayer(options: UseVideoPlayerOptions) {
     setBandwidthDisplay,
     loadMedia,
     setUrl,
+    switchUrl,
+    pauseBuffering,
+    resumeBuffering,
+    start,
+    stopBackgroundActivity,
+    resumeBackgroundActivity,
   }
 }

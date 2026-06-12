@@ -7,6 +7,7 @@
         checked: checkedKeys.has(node.id),
       }"
       @click="handleClick"
+      @mouseenter="handleMouseEnter"
     >
       <span
         v-if="node.children?.length"
@@ -56,6 +57,7 @@
         @node-click="$emit('node-click', $event)"
         @node-check="(...args) => $emit('node-check', ...args)"
         @toggle-expand="$emit('toggle-expand', $event)"
+        @node-hover="$emit('node-hover', $event)"
       />
     </div>
   </div>
@@ -81,6 +83,7 @@ const emit = defineEmits<{
   (e: 'node-click', node: DeviceNode): void
   (e: 'node-check', node: DeviceNode, checked: boolean): void
   (e: 'toggle-expand', key: string): void
+  (e: 'node-hover', node: DeviceNode): void
 }>()
 
 function handleClick() {
@@ -93,6 +96,10 @@ function handleToggle() {
 
 function handleRadioChange() {
   emit('node-click', props.node)
+}
+
+function handleMouseEnter() {
+  emit('node-hover', props.node)
 }
 
 const isChecked = computed({

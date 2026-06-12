@@ -1,5 +1,5 @@
 {
-  "title": "启动 mediamtx 解决 RTMP 设备 502 错误",
+  "title": "启动 mediamtx 解决 RTMP 设备 502 错误 + HLS 后台实例直播边缘同步修复",
   "stories": [
     {
       "id": "US-001",
@@ -20,6 +20,19 @@
         "GET /api/v1/stream/device/54/flv 返回 200 和有效 flv_url",
         "GET /api/v1/stream/device/55/flv 返回 200 和有效 flv_url",
         "mediamtx API 中注册了 device_54 和 device_55 的流路径"
+      ],
+      "passes": true
+    },
+    {
+      "id": "US-003",
+      "title": "修复 HLS 后台实例恢复时请求过期 live segment 导致黑屏",
+      "description": "直播流 segment 轮换很快，后台实例 pause 后恢复会从旧播放位置继续请求，导致 404 黑屏。需要在 resume 时强制重新同步到直播边缘。",
+      "acceptanceCriteria": [
+        "useVideoPlayer.ts resumeBackgroundActivity() 在 HLS 实例恢复时重新加载 manifest（调用 loadSource 或 startLoad）",
+        "修复后切换回后台 HLS 设备不再请求已不存在的旧 segment（如 cc31b3882c10_video1_seg97.mp4）",
+        "切换延迟仍可接受（manifest 极小，额外 RTT < 100ms）",
+        "npm run build 无新增 TypeScript 错误",
+        "FLV / 直出 / HTTP 设备路径不受影响"
       ],
       "passes": true
     }
