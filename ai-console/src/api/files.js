@@ -5,13 +5,19 @@ export const getFile = (id) => request.get(`/file-records/${id}`)
 export const uploadFile = (data) => request.post('/file-records', data)
 export const deleteFile = (id) => request.delete(`/file-records/${id}`)
 export const downloadFile = (id, filename) => {
-  return request.get(`/file-records/${id}/download`, { responseType: 'blob' }).then(blob => {
-    const url = window.URL.createObjectURL(blob)
+  return request.post(`/file-records/${id}/download`).then(data => {
+    const url = data?.url
+    const name = filename || data?.file_name || 'download'
+    if (!url) {
+      throw new Error('下载链接为空')
+    }
     const a = document.createElement('a')
     a.href = url
-    a.download = filename || 'download'
+    a.download = name
+    a.style.display = 'none'
+    document.body.appendChild(a)
     a.click()
-    window.URL.revokeObjectURL(url)
+    document.body.removeChild(a)
   })
 }
 export const getFileUrl = (id) => request.get(`/file-records/${id}/url`)

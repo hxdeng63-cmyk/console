@@ -228,20 +228,6 @@ const methodLabel = (method: string) => {
   return map[method] || method
 }
 
-const allExpandableIds = (items: any[]) => {
-  const ids: string[] = []
-  const walk = (list: any[]) => {
-    list.forEach(item => {
-      if (item.children && item.children.length > 0) {
-        ids.push(item.id)
-        walk(item.children)
-      }
-    })
-  }
-  walk(items)
-  return ids
-}
-
 const toggleExpand = () => {
   expandAll.value = !expandAll.value
   const next = expandAll.value

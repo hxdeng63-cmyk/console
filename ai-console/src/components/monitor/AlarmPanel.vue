@@ -7,6 +7,7 @@
           :key="alarm.id"
           class="alarm-item"
           :class="{ 'is-new': alarm.isNew }"
+          @click="handleAlarmClick(alarm)"
         >
           <div class="alarm-main">
             <div class="alarm-header">
@@ -16,7 +17,7 @@
               </span>
             </div>
             <div class="alarm-body">
-              <span class="event-type">{{ alarm.eventType }}</span>
+              <span class="event-type">{{ getEventTypeDisplayName(alarm.eventType) }}</span>
               <span class="capture-time">{{ alarm.captureTime }}</span>
             </div>
           </div>
@@ -31,6 +32,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { ElEmpty } from 'element-plus'
+import { getEventTypeDisplayName } from '@/utils/eventType'
 
 export interface AlarmItem {
   id: string

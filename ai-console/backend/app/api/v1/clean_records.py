@@ -4,12 +4,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_db
+from app.core.async_tasks import async_task_manager
+from app.core.database import AsyncSessionLocal, get_db
 from app.models import CleanRecord
 from app.schemas import (
     CleanRecordCreate, CleanRecordUpdate, CleanRecordResponse,
     PaginatedResponse
 )
+from app.services.cleanup_service import execute_cleanup
 
 router = APIRouter(prefix="/clean-records", tags=["清理记录管理"])
 
@@ -118,24 +120,77 @@ async def delete_clean_record(record_id: int, db: AsyncSession = Depends(get_db)
     return {"message": "删除成功"}
 
 
-@router.post("/execute", response_model=CleanRecordResponse)
+@router.post("/execute", response_model=dict)
 async def execute_clean(
     data: dict,
     db: AsyncSession = Depends(get_db)
 ):
-    """手动执行数据清理任务
+    """手动执行数据清理任务，立即返回 task_id，后台异步执行。
 
     Request body:
         dimension: str - 清理维度，可选 "all" | "warning_event" | "video_file"，默认 "all"
     """
-    from app.services.cleanup_service import execute_cleanup
-
     dimension = data.get("dimension", "all")
     if dimension not in ("all", "warning_event", "video_file"):
         raise HTTPException(status_code=400, detail="dimension 参数无效")
 
-    record = await execute_cleanup(db, dimension=dimension)
-    return record
+    task_id = async_task_manager.create_task(
+        status="pending",
+        extra={"dimension": dimension},
+    )
+    async_task_manager.run_task(
+        task_id,
+        lambda tid: _run_clean_execute_task(tid, dimension),
+    )
+    return {"task_id": task_id, "status": "pending"}
+
+
+@router.get("/execute/status/{task_id}", response_model=dict)
+async def get_execute_clean_status(task_id: str):
+    """查询手动清理任务的执行状态。"""
+    task = await async_task_manager.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return task
+
+
+async def _run_clean_execute_task(task_id: str, dimension: str) -> None:
+    """后台执行数据清理并更新任务状态。"""
+    await async_task_manager.update_task(task_id, "running")
+
+    try:
+        async with AsyncSessionLocal() as db:
+            record = await execute_cleanup(db, dimension=dimension)
+            if record.status == "failed":
+                await async_task_manager.update_task(
+                    task_id,
+                    "failed",
+                    {
+                        "clean_record_id": record.id,
+                        "error": record.error_message,
+                        "records_cleaned": record.records_cleaned or 0,
+                        "clean_size_bytes": record.clean_size_bytes or 0,
+                        "status": record.status,
+                    },
+                )
+            else:
+                await async_task_manager.update_task(
+                    task_id,
+                    "completed",
+                    {
+                        "clean_record_id": record.id,
+                        "records_cleaned": record.records_cleaned or 0,
+                        "clean_size_bytes": record.clean_size_bytes or 0,
+                        "status": record.status,
+                        "progress": record.progress,
+                    },
+                )
+    except Exception as exc:
+        await async_task_manager.update_task(
+            task_id,
+            "failed",
+            {"error": str(exc)},
+        )
 
 
 @router.get("/status/{record_id}", response_model=CleanRecordResponse)

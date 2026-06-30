@@ -7,3 +7,5 @@ export const updateCleanRecord = (id, data) => request.put(`/clean-records/${id}
 export const deleteCleanRecord = (id) => request.delete(`/clean-records/${id}`)
 export const executeCleanRecord = (data) => request.post('/clean-records/execute', data)
 export const getCleanStatus = (id) => request.get(`/clean-records/status/${id}`)
+export const executeCleanRecordAsync = (data) => request.post('/clean-records/execute', data)
+export const getExecuteCleanRecordStatus = (taskId) => request.get(`/clean-records/execute/status/${taskId}`)

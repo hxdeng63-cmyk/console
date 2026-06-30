@@ -49,15 +49,23 @@
           />
         </div>
         <video
-          v-show="isNativeVideoVisible"
+          v-show="isNativeVideoVisible && !nativeVideoError"
           ref="nativeVideoRef"
           :src="currentVideoUrl"
           controls
           autoplay
           muted
-          @canplay="handleVideoCanplay"
+          @canplay="nativeVideoError = false; handleVideoCanplay()"
+          @error="nativeVideoError = true"
           style="width: 100%; height: 100%; object-fit: contain;"
         />
+
+        <div
+          v-show="isNativeVideoVisible && nativeVideoError"
+          class="video-placeholder"
+        >
+          <span style="color: #FF006E;">视频文件不存在或暂不可用</span>
+        </div>
 
         <div
           v-show="isFallbackVideoVisible"
@@ -119,9 +127,13 @@
           @click="handleAlarmClick(alarm)"
         >
           <div class="alarm-thumbnail">
-            <img v-if="alarm.imageUrl" :src="alarm.imageUrl" :alt="alarm.type" />
-            <div v-else class="alarm-no-image">无图片</div>
-            <div class="alarm-detection-box"></div>
+            <img
+              v-if="alarm.imageUrl"
+              :src="alarm.imageUrl"
+              :alt="alarm.type"
+              @error="handleImageError"
+            />
+            <div class="alarm-no-image" :style="{ display: alarm.imageUrl ? 'none' : 'flex' }">无图片</div>
             <div class="alarm-time">{{ alarm.time }}</div>
           </div>
           <div class="alarm-info">
@@ -148,7 +160,12 @@
     >
       <div class="detail-container">
         <div class="detail-image">
-          <img v-if="selectedAlarm?.imageUrl" :src="selectedAlarm.imageUrl" alt="事件图片" />
+          <img
+            v-if="selectedAlarm?.imageUrl"
+            :src="selectedAlarm.imageUrl"
+            alt="事件图片"
+            @error="handleImageError"
+          />
           <div v-else class="detail-no-image">无图片</div>
         </div>
         <div class="detail-info">
@@ -201,11 +218,12 @@
     >
       <div class="video-playback-container">
         <video
-          v-if="alarmVideoUrl"
+          v-if="alarmVideoUrl && !alarmVideoError"
           :src="alarmVideoUrl"
           controls
           autoplay
           style="width: 100%; max-height: 500px;"
+          @error="handleAlarmVideoError"
         />
         <div v-else class="video-playback-empty">暂无视频</div>
       </div>
@@ -221,6 +239,8 @@ import DeviceTree from '@/components/device-tree/DeviceTree.vue'
 import { useStreamPoolStore, type PoolDevice } from '@/stores/streamPool'
 import { getDeviceGroupTree } from '@/api/device-groups'
 import { getList as getWarningEvents } from '@/api/warning-events'
+import { registerDevicesAsync, getRegisterDevicesStatus } from '@/api/stream'
+import { getEventTypeDisplayName } from '@/utils/eventType'
 import type { DeviceNode } from '@/components/device-tree/useDeviceTree'
 import type { ComponentPublicInstance } from 'vue'
 
@@ -235,10 +255,12 @@ const warningEvents = ref<any[]>([])
 const loadingAlarms = ref(false)
 const streamLoading = ref(false)
 const streamError = ref(false)
+const nativeVideoError = ref(false)
 const nativeVideoRef = ref<HTMLVideoElement | null>(null)
 const fallbackVideoPlayerRef = ref<ComponentPublicInstance<any> | null>(null)
 const playerRefs = ref<Map<string, ComponentPublicInstance>>(new Map())
 let refreshTimer: ReturnType<typeof setInterval> | null = null
+let streamRegisterPollTimer: ReturnType<typeof setInterval> | null = null
 
 // 设备流元数据缓存（包含所有设备，用于原生视频播放）
 const deviceStreamMap = ref<Record<string, CachedStreamInfo>>({})
@@ -257,6 +279,11 @@ function handleVideoCanplay() {
 const detailDialogVisible = ref(false)
 const selectedAlarm = ref<any>(null)
 const videoDialogVisible = ref(false)
+const alarmVideoError = ref(false)
+
+const handleAlarmVideoError = () => {
+  alarmVideoError.value = true
+}
 
 interface CachedStreamInfo {
   url: string
@@ -278,10 +305,11 @@ function isDirectVideoUrl(url: string): boolean {
 }
 
 function mapStreamType(sourceType: string, url: string): 'stream' | 'local' {
-  if ((sourceType === 'http' || sourceType === 'stream') && !isDirectVideoUrl(url)) {
-    return 'stream'
-  }
-  return 'local'
+  // 'local' means "use native <video> player"
+  // 'stream' means "use hls.js/flv.js player"
+  if (sourceType === 'local') return 'local'
+  if (isDirectVideoUrl(url)) return 'local'
+  return 'stream'
 }
 
 function flattenDevices(nodes: DeviceNode[]): DeviceNode[] {
@@ -302,6 +330,7 @@ const alarmVideoUrl = computed(() => {
 })
 
 function handleVideoPlayback() {
+  alarmVideoError.value = false
   videoDialogVisible.value = true
 }
 
@@ -352,7 +381,7 @@ const fetchWarningEvents = async () => {
     warningEvents.value = items.map((item: any) => ({
       id: item.id,
       time: item.time || '',
-      type: item.eventType || item.eventDetail || '未知事件',
+      type: item.eventType ? getEventTypeDisplayName(item.eventType) : (item.eventDetail || '未知事件'),
       eventDetail: item.eventDetail || '',
       deviceName: item.cameraName || '',
       location: item.location || '',
@@ -426,67 +455,91 @@ async function initStreamPool(allDevices: DeviceNode[]) {
     return
   }
 
-  // 批量获取所有设备流地址
+  // 批量获取所有设备流地址（异步任务 + 轮询）
   try {
-    const response = await fetch('/api/v1/stream/devices/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ device_ids: allDevices.map(d => d.id) }),
-    })
-    if (!response.ok) {
-      console.error('Failed to register device streams:', response.status)
+    const { task_id }: any = await registerDevicesAsync(allDevices.map(d => d.id))
+    if (!task_id) {
+      console.error('Failed to register device streams: no task_id')
       return
     }
-    const data = await response.json()
-    const results = data.results || []
 
-    const newMap: Record<string, CachedStreamInfo> = {}
-    const poolDevices: PoolDevice[] = []
+    startStreamRegisterPoll(task_id, (status: any) => {
+      const results = status.results || []
+      const newMap: Record<string, CachedStreamInfo> = {}
+      const poolDevices: PoolDevice[] = []
 
-    results.forEach((item: any) => {
-      const deviceId = String(item.device_id)
-      const device = allDevices.find(d => d.id === deviceId)
-      if (!item.success) {
-        console.warn(`[StreamPool] Device ${deviceId} registration failed:`, item.error)
-        return
-      }
+      results.forEach((item: any) => {
+        const deviceId = String(item.device_id)
+        const device = allDevices.find(d => d.id === deviceId)
+        if (!item.success) {
+          console.warn(`[StreamPool] Device ${deviceId} registration failed:`, item.error)
+          return
+        }
 
-      const info: CachedStreamInfo = {
-        url: item.flv_url,
-        type: mapStreamType(item.source_type, item.flv_url),
-        sourceType: item.source_type,
-        rtspUrl: item.rtsp_url,
-        streamName: item.stream_name,
-        cachedAt: Date.now(),
-      }
-      newMap[deviceId] = info
+        const info: CachedStreamInfo = {
+          url: item.flv_url,
+          type: mapStreamType(item.source_type, item.flv_url),
+          sourceType: item.source_type,
+          rtspUrl: item.rtsp_url,
+          streamName: item.stream_name,
+          cachedAt: Date.now(),
+        }
+        newMap[deviceId] = info
 
-      poolDevices.push({
-        id: deviceId,
-        name: device?.name || deviceId,
-        url: item.flv_url,
-        sourceType: item.source_type,
-        streamName: item.stream_name,
+        poolDevices.push({
+          id: deviceId,
+          name: device?.name || deviceId,
+          url: item.flv_url,
+          sourceType: item.source_type,
+          streamName: item.stream_name,
+        })
       })
-    })
 
-    deviceStreamMap.value = newMap
-    streamPoolStore.initPool(poolDevices)
+      deviceStreamMap.value = newMap
+      streamPoolStore.initPool(poolDevices)
 
-    // 延迟启动后台实例，避免并发 burst
-    startPoolPlayers()
+      // 延迟启动后台实例，避免并发 burst
+      startPoolPlayers()
 
-    // 默认选中第一个设备
-    const firstDevice = allDevices[0]
-    if (firstDevice) {
-      currentDevice.value = firstDevice
-      if (streamPoolStore.hlsDevices.some(d => d.id === firstDevice.id)) {
-        streamPoolStore.setVisible(firstDevice.id)
+      // 默认选中第一个设备
+      const firstDevice = allDevices[0]
+      if (firstDevice) {
+        currentDevice.value = firstDevice
+        if (streamPoolStore.hlsDevices.some(d => d.id === firstDevice.id)) {
+          streamPoolStore.setVisible(firstDevice.id)
+        }
       }
-    }
+    })
   } catch (error) {
     console.error('Failed to init stream pool:', error)
   }
+}
+
+const clearStreamRegisterPoll = () => {
+  if (streamRegisterPollTimer) {
+    clearInterval(streamRegisterPollTimer)
+    streamRegisterPollTimer = null
+  }
+}
+
+const startStreamRegisterPoll = (taskId: string, onCompleted: (status: any) => void) => {
+  clearStreamRegisterPoll()
+  streamRegisterPollTimer = window.setInterval(async () => {
+    try {
+      const status: any = await getRegisterDevicesStatus(taskId)
+      if (status.status === 'completed' || status.status === 'failed') {
+        clearStreamRegisterPoll()
+        if (status.status === 'completed') {
+          onCompleted(status)
+        } else {
+          console.error('Stream registration task failed:', status.error || status.errors)
+        }
+      }
+    } catch (pollError: any) {
+      clearStreamRegisterPoll()
+      console.error('Stream register poll failed:', pollError)
+    }
+  }, 2000)
 }
 
 function startPoolPlayers() {
@@ -502,6 +555,7 @@ function startPoolPlayers() {
 
 onUnmounted(() => {
   stopAutoRefresh()
+  clearStreamRegisterPoll()
   streamPoolStore.scheduleRelease(30000)
 })
 
@@ -545,6 +599,7 @@ async function handleDeviceClick(node: DeviceNode) {
   if (node.type !== 'device') return
 
   streamError.value = false
+  nativeVideoError.value = false
   hasMeasuredLatency.value = false
 
   if (streamPoolStore.enableHotPool) {
@@ -680,7 +735,15 @@ function handleNodeHover(_node: DeviceNode) {
 
 function handleAlarmClick(alarm: any) {
   selectedAlarm.value = alarm
+  alarmVideoError.value = false
   detailDialogVisible.value = true
+}
+
+function handleImageError(e: Event) {
+  const img = e.target as HTMLImageElement
+  img.style.display = 'none'
+  const placeholder = img.nextElementSibling as HTMLElement | null
+  if (placeholder) placeholder.style.display = 'flex'
 }
 
 function statusText(status: string) {
@@ -835,17 +898,6 @@ function statusTagType(status: string): string {
   width: 100%;
   height: 100%;
   object-fit: cover;
-}
-
-.alarm-detection-box {
-  position: absolute;
-  top: 20%;
-  left: 20%;
-  width: 60%;
-  height: 50%;
-  border: 2px solid #FF006E;
-  border-radius: 2px;
-  pointer-events: none;
 }
 
 .alarm-time {

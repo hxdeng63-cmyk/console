@@ -133,6 +133,7 @@
                 <el-option label="RTMP" value="RTMP" />
                 <el-option label="RTSP" value="RTSP" />
                 <el-option label="HTTP/HTTPS" value="HTTP/HTTPS" />
+                <el-option label="本地" value="本地" />
               </el-select>
             </el-form-item>
           </el-col>

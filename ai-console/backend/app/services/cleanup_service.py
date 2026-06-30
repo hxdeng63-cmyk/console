@@ -120,11 +120,11 @@ async def _cleanup_warning_events(db: AsyncSession, cutoff: datetime) -> tuple[i
         .values(deleted_at=datetime.utcnow())
     )
 
-    # 更新 video_url / image_url 为占位符
+    # 清空 video_url / image_url，避免前端继续请求已删除文件
     await db.execute(
         update(WarningEvent)
         .where(WarningEvent.id.in_(event_ids))
-        .values(video_url="CLEANED", image_url="CLEANED")
+        .values(video_url=None, image_url=None)
     )
 
     return len(event_ids), total_size
@@ -155,12 +155,12 @@ async def _cleanup_video_files(db: AsyncSession, cutoff: datetime) -> tuple[int,
         .values(deleted_at=datetime.utcnow())
     )
 
-    # 更新关联预警事件的 video_url 为占位符
+    # 清空关联预警事件的 video_url，避免前端继续请求已删除文件
     if event_ids:
         await db.execute(
             update(WarningEvent)
             .where(WarningEvent.id.in_(event_ids))
-            .values(video_url="CLEANED")
+            .values(video_url=None)
         )
 
     return len(file_ids), total_size

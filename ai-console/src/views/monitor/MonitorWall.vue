@@ -7,12 +7,24 @@
         <div class="video-wrapper">
           <!-- 视频播放器 -->
           <div class="video-container">
-            <VideoPlayer
-              v-if="currentDevice"
-              :url="currentVideoUrl"
-              protocol="flv"
-              :initial-osd-location="currentDevice.name"
-            />
+            <template v-if="currentDevice">
+              <MonitoringVideoPlayer
+                v-if="isNativeVideo"
+                :src="currentVideoUrl"
+              />
+              <VideoPlayer
+                v-else-if="currentVideoUrl"
+                :url="currentVideoUrl"
+                :protocol="currentProtocol"
+                :initial-osd-location="currentDevice.name"
+              />
+              <div v-else-if="streamLoading" class="video-placeholder">
+                <span>正在连接视频流...</span>
+              </div>
+              <div v-else class="video-placeholder">
+                <span style="color: #FF006E;">无法连接视频流，请检查设备配置</span>
+              </div>
+            </template>
             <div v-else class="video-placeholder">
               <span>等待选择设备...</span>
             </div>
@@ -47,15 +59,40 @@
                 :value="ch.id"
               />
             </el-select>
+            <el-select
+              v-model="selectedAlgorithm"
+              placeholder="选择识别算法"
+              class="channel-select"
+              @change="handleAlgorithmChange"
+            >
+              <el-option-group v-for="algo in algorithms" :key="algo.id" :label="algo.name">
+                <el-option
+                  v-for="ev in algo.events"
+                  :key="`${algo.id}-${ev.name}`"
+                  :label="getEventTypeDisplayName(ev.name)"
+                  :value="`${algo.id}:${ev.moduleName}:${ev.name}`"
+                  :disabled="!ev.moduleName"
+                />
+              </el-option-group>
+            </el-select>
             <el-button class="draw-btn">
               <el-icon><Edit /></el-icon>
               绘制区域
+            </el-button>
+            <el-button
+              class="restart-btn"
+              type="warning"
+              :loading="restarting"
+              @click="handleRestartAll"
+            >
+              <el-icon><Refresh /></el-icon>
+              重新监测
             </el-button>
           </div>
         </div>
 
         <!-- 实时交通参数 -->
-        <div class="panel-section traffic-section">
+        <div v-loading="dashboardLoading" class="panel-section traffic-section">
           <div class="section-header">
             <span class="header-bar"></span>
             <span class="section-title">实时交通参数</span>
@@ -78,7 +115,7 @@
         </div>
 
         <!-- 交通事件统计 -->
-        <div class="panel-section events-section">
+        <div v-loading="dashboardLoading" class="panel-section events-section">
           <div class="section-header">
             <span class="header-bar"></span>
             <span class="section-title">交通事件统计</span>
@@ -141,7 +178,7 @@
         </div>
 
         <!-- 布控信息 -->
-        <div class="panel-section deployment-section">
+        <div v-loading="dashboardLoading" class="panel-section deployment-section">
           <div class="section-header">
             <span class="header-bar"></span>
             <span class="section-title">布控信息</span>
@@ -178,8 +215,8 @@
           class="event-card"
         >
           <div class="event-thumb">
-            <img :src="event.imageUrl" :alt="event.type" />
-            <div class="event-detection-box"></div>
+            <img :src="event.imageUrl" :alt="event.type" @error="handleImageError" />
+            <div class="event-no-image" :style="{ display: event.imageUrl ? 'none' : 'flex' }">无图片</div>
           </div>
           <div class="event-label">
             <span class="event-type">{{ event.type }}</span>
@@ -209,15 +246,53 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import { Edit } from '@element-plus/icons-vue'
+import { ref, computed, onMounted, watch, onUnmounted } from 'vue'
+import { Edit, Refresh } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import VideoPlayer from '@/components/video/VideoPlayer.vue'
+import MonitoringVideoPlayer from '@/components/monitor/MonitoringVideoPlayer.vue'
 import { getDevices } from '@/api/devices'
 import { getList as getWarningEvents } from '@/api/warning-events'
+import { getSceneStats } from '@/api/event-stats'
+import { deploymentApi } from '@/api/deployment'
+import { registerDevicesAsync, getRegisterDevicesStatus } from '@/api/stream'
+import { getEventTypeDisplayName } from '@/utils/eventType'
 import type { DeviceNode } from '@/components/device-tree/useDeviceTree'
 
-const selectedChannel = ref('device-4')
+const selectedChannel = ref('')
+const selectedAlgorithm = ref('')
 const eventFilter = ref('all')
+
+interface StreamInfo {
+  url: string
+  sourceType: string
+}
+
+interface AlgorithmOption {
+  id: number
+  name: string
+  events: {
+    name: string
+    description?: string
+    moduleName?: string
+  }[]
+}
+
+const streamMap = ref<Record<string, StreamInfo>>({})
+const streamLoading = ref(false)
+const streamError = ref(false)
+const streamRegistering = ref(false)
+const streamRegisterPollTimer = ref<number | null>(null)
+
+const dashboardLoading = ref(false)
+const algorithms = ref<AlgorithmOption[]>([])
+const deploymentData = ref<any[]>([])
+const alarmList = ref<any[]>([])
+
+const eventPollTimer = ref<number | null>(null)
+const dashboardRefreshTimer = ref<number | null>(null)
+const startStatusTimer = ref<number | null>(null)
+
 const deploymentInfo = computed(() => {
   const totalDevices = deviceTreeData.value.reduce((sum, org) => {
     return sum + (org.children?.reduce((s, group) => s + (group.children?.length || 0), 0) || 0)
@@ -227,7 +302,6 @@ const deploymentInfo = computed(() => {
 })
 
 const deviceTreeData = ref<DeviceNode[]>([])
-const alarmList = ref<any[]>([])
 
 const fetchDeviceTree = async () => {
   try {
@@ -266,31 +340,540 @@ const fetchDeviceTree = async () => {
   }
 }
 
-const fetchAlarms = async () => {
+const parseRawChannelId = (channelId: string): number => {
+  if (!channelId) return 0
+  const raw = channelId.replace(/^device-/, '')
+  const num = Number(raw)
+  return Number.isNaN(num) ? 0 : num
+}
+
+const fetchAlgorithms = async () => {
   try {
-    const res: any = await getWarningEvents({ page: 1, page_size: 50 })
+    const res: any = await deploymentApi.listAlgorithms({ page: 1, page_size: 100 })
+    algorithms.value = (res.items || []).map((a: any) => ({
+      id: a.id,
+      name: a.name,
+      events: (a.events || []).map((e: any) => ({
+        name: e.name,
+        description: e.description,
+        moduleName: e.module_name,
+      })),
+    }))
+  } catch {
+    ElMessage.error('加载算法列表失败')
+  }
+}
+
+const handleAlgorithmChange = async (value: string) => {
+  if (!value || !selectedChannel.value) return
+  const parts = value.split(':')
+  if (parts.length < 3 || !parts[1]) {
+    ElMessage.warning('该算法模块不可运行')
+    return
+  }
+  const [algorithmIdStr, moduleName, eventName] = parts
+  const algorithmId = Number(algorithmIdStr)
+  const rawId = parseRawChannelId(selectedChannel.value)
+  if (!rawId || !algorithmId || !moduleName || !eventName) return
+
+  try {
+    const existing: any = await deploymentApi.list({
+      device_id: rawId,
+      module_name: moduleName,
+      page: 1,
+      page_size: 1,
+    })
+    const item = existing.items?.[0]
+
+    let deploymentId: number
+    if (item) {
+      deploymentId = item.id
+      if (item.algorithm_status === 'running') {
+        ElMessage.info('该算法已在运行')
+        return
+      }
+    } else {
+      const created: any = await deploymentApi.create({
+        name: `${moduleName}_${rawId}`,
+        algorithm_id: algorithmId,
+        device_ids: [rawId],
+        module_name: moduleName,
+        status: 'active',
+        algorithm_status: 'stopped',
+      })
+      deploymentId = created.id
+    }
+
+    const startRes: any = await deploymentApi.start(deploymentId, {
+      module_name: moduleName,
+      video_path: 'auto',
+    })
+    pollStartStatus(deploymentId, startRes.task_id, moduleName)
+    ElMessage.success('识别任务已启动')
+  } catch (error: any) {
+    ElMessage.error('启动识别失败：' + (error?.message || '未知错误'))
+  }
+}
+
+const pollStartStatus = (
+  deploymentId: number,
+  taskId: string,
+  moduleName: string,
+  maxAttempts = 30,
+) => {
+  if (startStatusTimer.value) {
+    window.clearInterval(startStatusTimer.value)
+    startStatusTimer.value = null
+  }
+  let attempts = 0
+  startStatusTimer.value = window.setInterval(async () => {
+    attempts += 1
+    try {
+      const res: any = await deploymentApi.startStatus(deploymentId, taskId)
+      if (res.status === 'success') {
+        clearStartStatusTimer()
+        ElMessage.success(`${moduleName} 识别已就绪`)
+        const rawId = parseRawChannelId(selectedChannel.value)
+        if (rawId) {
+          fetchDashboardData(rawId)
+          fetchAlarms(rawId)
+        }
+        return
+      }
+      if (res.status === 'failed') {
+        clearStartStatusTimer()
+        ElMessage.error(`${moduleName} 启动失败：${res.error || '未知错误'}`)
+        return
+      }
+      if (attempts >= maxAttempts) {
+        clearStartStatusTimer()
+        ElMessage.warning(`${moduleName} 启动状态获取超时`)
+      }
+    } catch {
+      // 继续轮询直到超时
+    }
+  }, 2000)
+}
+
+const clearStartStatusTimer = () => {
+  if (startStatusTimer.value) {
+    window.clearInterval(startStatusTimer.value)
+    startStatusTimer.value = null
+  }
+}
+
+const clearEventPollTimer = () => {
+  if (eventPollTimer.value) {
+    window.clearInterval(eventPollTimer.value)
+    eventPollTimer.value = null
+  }
+}
+
+const clearDashboardRefreshTimer = () => {
+  if (dashboardRefreshTimer.value) {
+    window.clearInterval(dashboardRefreshTimer.value)
+    dashboardRefreshTimer.value = null
+  }
+}
+
+const restartEventPolling = (rawId: number) => {
+  clearEventPollTimer()
+  if (!rawId) return
+  fetchAlarms(rawId)
+  eventPollTimer.value = window.setInterval(() => fetchAlarms(rawId), 3000)
+}
+
+const restartDashboardPolling = (rawId: number) => {
+  clearDashboardRefreshTimer()
+  if (!rawId) return
+  fetchDashboardData(rawId)
+  dashboardRefreshTimer.value = window.setInterval(() => fetchDashboardData(rawId), 5000)
+}
+
+const fetchDashboardData = async (rawId: number) => {
+  if (!rawId) return
+  dashboardLoading.value = true
+  try {
+    await Promise.all([
+      fetchStatsData(rawId),
+      fetchEventStats(rawId),
+      fetchDeploymentData(rawId),
+    ])
+  } finally {
+    dashboardLoading.value = false
+  }
+}
+
+const fetchStatsData = async (rawId: number) => {
+  if (!rawId) return
+  let upTraffic = '--'
+  let downTraffic = '--'
+  let roadLevel = 1
+  let roadLevelText = '畅通'
+
+  try {
+    const flowRes: any = await getWarningEvents({
+      device_id: rawId,
+      event_type: 'flow',
+      page: 1,
+      page_size: 1,
+    })
+    const flowItem = (flowRes.items || [])[0]
+    if (flowItem?.eventDetail) {
+      try {
+        const flow = JSON.parse(flowItem.eventDetail)
+        if (flow.up_count !== undefined) upTraffic = String(flow.up_count)
+        if (flow.down_count !== undefined) downTraffic = String(flow.down_count)
+      } catch {
+        // 解析失败时保持默认值
+      }
+    }
+
+    const jamRes: any = await getWarningEvents({
+      device_id: rawId,
+      event_type: 'jam',
+      page: 1,
+      page_size: 1,
+    })
+    const jamItem = (jamRes.items || [])[0]
+    if (jamItem?.eventDetail) {
+      try {
+        const jam = JSON.parse(jamItem.eventDetail)
+        if (jam.is_jam === true) {
+          roadLevel = 4
+          roadLevelText = '拥堵'
+        } else if (jam.confidence > 0.5) {
+          roadLevel = 3
+          roadLevelText = '缓慢'
+        }
+      } catch {
+        // 解析失败时保持默认值
+      }
+    }
+  } catch {
+    // 已在 api 层提示
+  }
+
+  statsData.value = {
+    avgSpeed: '--',
+    upTraffic,
+    downTraffic,
+    roadLevel,
+    roadLevelText,
+  }
+}
+
+const LEGEND_COLORS = ['#00FFCC', '#0099FF', '#00EAFF', '#FF9900']
+
+const fetchEventStats = async (rawId: number) => {
+  if (!rawId) return
+  try {
+    const today = new Date().toISOString().split('T')[0]
+    const res: any = await getSceneStats({ device_id: rawId, start_date: today })
+    const categories = res.categories || []
+    const values = res.values || []
+    const legend = categories.map((name: string, index: number) => ({
+      name: getEventTypeDisplayName(name),
+      value: values[index] || 0,
+      color: LEGEND_COLORS[index % LEGEND_COLORS.length],
+    }))
+    eventStats.value = {
+      total: values.reduce((sum: number, v: number) => sum + (v || 0), 0),
+      legend,
+    }
+  } catch {
+    eventStats.value = { total: 0, legend: [] }
+  }
+}
+
+const fetchDeploymentData = async (rawId: number) => {
+  if (!rawId) return
+  try {
+    const res: any = await deploymentApi.list({ device_id: rawId, page: 1, page_size: 100 })
+    const items = res.items || []
+    deploymentData.value = items.map((item: any) => {
+      const status = item.algorithm_status || item.status || 'stopped'
+      const statusMap: Record<string, { text: string; cls: string }> = {
+        running: { text: '运行中', cls: 'online' },
+        stopped: { text: '已停止', cls: 'offline' },
+        failed: { text: '失败', cls: 'warning' },
+        completed: { text: '已完成', cls: 'online' },
+        active: { text: '运行中', cls: 'online' },
+      }
+      const mapped = statusMap[status] || { text: status, cls: 'offline' }
+      return {
+        name: item.name || '未知方案',
+        algorithm: item.module_name || '未知算法',
+        status: mapped.text,
+        statusClass: mapped.cls,
+      }
+    })
+  } catch {
+    deploymentData.value = []
+  }
+}
+
+const fetchAlarms = async (rawId?: number) => {
+  try {
+    const params: any = { page: 1, page_size: 50 }
+    if (rawId) params.device_id = rawId
+    const res: any = await getWarningEvents(params)
     const items = res.items || []
     alarmList.value = items.map((item: any) => ({
       id: item.id,
       time: item.time || item.captureTime?.split(' ')[1] || '00:00:00',
-      type: item.type || '未知',
+      type: getEventTypeDisplayName(item.eventType || item.eventTypeName) || '未知',
       device: item.device || '',
       location: item.location || '',
       level: item.level || 'info',
       handled: item.handled ?? false,
       isCompliant: item.isCompliant ?? true,
       imageUrl: item.imageUrl || '',
-      captureTime: item.captureTime || ''
+      captureTime: item.captureTime || '',
     }))
-  } catch (error) {
-    console.error('Failed to load alarms:', error)
+  } catch {
     alarmList.value = []
   }
 }
 
+function handleImageError(e: Event) {
+  const img = e.target as HTMLImageElement
+  img.style.display = 'none'
+  const placeholder = img.nextElementSibling as HTMLElement | null
+  if (placeholder) placeholder.style.display = 'flex'
+}
+
+const restarting = ref(false)
+const restartPollTimer = ref<number | null>(null)
+
+const clearRestartPoll = () => {
+  if (restartPollTimer.value !== null) {
+    clearInterval(restartPollTimer.value)
+    restartPollTimer.value = null
+  }
+}
+
+const handleRestartAll = async () => {
+  if (restarting.value) return
+  clearRestartPoll()
+
+  try {
+    restarting.value = true
+    const { task_id }: any = await deploymentApi.restartAll()
+    if (!task_id) {
+      throw new Error('未返回任务 ID')
+    }
+
+    ElMessage.info('重新监测任务已启动，正在轮询进度…')
+
+    restartPollTimer.value = window.setInterval(async () => {
+      try {
+        const status: any = await deploymentApi.getRestartAllStatus(task_id)
+        const {
+          status: taskStatus,
+          restarted = 0,
+          failed = 0,
+          skipped = 0,
+          error,
+        } = status
+
+        if (taskStatus === 'completed') {
+          clearRestartPoll()
+          restarting.value = false
+          ElMessage.success(
+            `重新监测完成：已重启 ${restarted} 个，失败 ${failed} 个，跳过 ${skipped} 个`
+          )
+        } else if (taskStatus === 'failed') {
+          clearRestartPoll()
+          restarting.value = false
+          ElMessage.error('重新监测失败：' + (error || '未知错误'))
+        }
+      } catch (pollError: any) {
+        clearRestartPoll()
+        restarting.value = false
+        ElMessage.error('轮询任务进度失败：' + (pollError?.message || '未知错误'))
+      }
+    }, 2000)
+  } catch (error: any) {
+    restarting.value = false
+    ElMessage.error('重新监测失败：' + (error?.message || '未知错误'))
+  }
+}
+
+function isDirectVideoUrl(url: string): boolean {
+  return /\.(mp4|webm|ogg|mov)(\?.*)?$/i.test(url)
+}
+
+function isLocalStream(sourceType: string, url: string): boolean {
+  return sourceType === 'local' || isDirectVideoUrl(url)
+}
+
+function withCacheBuster(url: string, sourceType: string): string {
+  if (sourceType !== 'local') return url
+  if (!url) return url
+  const separator = url.includes('?') ? '&' : '?'
+  return `${url}${separator}_t=${Date.now()}`
+}
+
+const clearStreamRegisterPoll = () => {
+  if (streamRegisterPollTimer.value !== null) {
+    clearInterval(streamRegisterPollTimer.value)
+    streamRegisterPollTimer.value = null
+  }
+}
+
+const startStreamRegisterPoll = (taskId: string, onCompleted: (status: any) => void) => {
+  clearStreamRegisterPoll()
+  streamRegisterPollTimer.value = window.setInterval(async () => {
+    try {
+      const status: any = await getRegisterDevicesStatus(taskId)
+      if (status.status === 'completed' || status.status === 'failed') {
+        clearStreamRegisterPoll()
+        streamRegistering.value = false
+        streamLoading.value = false
+        if (status.status === 'completed') {
+          onCompleted(status)
+        } else {
+          console.error('Stream registration task failed:', status.error || status.errors)
+          streamError.value = true
+        }
+      }
+    } catch (pollError: any) {
+      clearStreamRegisterPoll()
+      streamRegistering.value = false
+      streamLoading.value = false
+      console.error('Stream register poll failed:', pollError)
+    }
+  }, 2000)
+}
+
+async function registerDeviceStream(rawId: string) {
+  if (!rawId || streamRegistering.value) return
+
+  streamRegistering.value = true
+  streamLoading.value = true
+  streamError.value = false
+
+  try {
+    const { task_id }: any = await registerDevicesAsync([rawId])
+    if (!task_id) {
+      throw new Error('未返回任务 ID')
+    }
+
+    startStreamRegisterPoll(task_id, (status: any) => {
+      const item = (status.results || []).find((r: any) => String(r.device_id) === rawId)
+      if (!item || !item.success) {
+        console.warn(`[MonitorWall] Device ${rawId} stream registration failed:`, item?.error)
+        return
+      }
+
+      const prefixedId = `device-${item.device_id}`
+      const sourceType = item.source_type || ''
+      streamMap.value = {
+        ...streamMap.value,
+        [prefixedId]: {
+          url: withCacheBuster(item.flv_url, sourceType),
+          sourceType,
+        },
+      }
+    })
+  } catch (error) {
+    streamRegistering.value = false
+    streamLoading.value = false
+    console.error(`Failed to register stream for device ${rawId}:`, error)
+  }
+}
+
+async function registerDeviceStreams() {
+  if (channels.value.length === 0 || streamRegistering.value) return
+
+  const rawIds = channels.value.map(ch => ch.id.replace(/^device-/, '')).filter(id => id !== '')
+  if (rawIds.length === 0) return
+
+  streamRegistering.value = true
+  streamLoading.value = true
+  streamError.value = false
+
+  try {
+    const { task_id }: any = await registerDevicesAsync(rawIds)
+    if (!task_id) {
+      throw new Error('未返回任务 ID')
+    }
+
+    startStreamRegisterPoll(task_id, (status: any) => {
+      const results = status.results || []
+      const newMap: Record<string, StreamInfo> = {}
+
+      results.forEach((item: any) => {
+        const prefixedId = `device-${item.device_id}`
+        if (item.success) {
+          newMap[prefixedId] = {
+            url: withCacheBuster(item.flv_url, item.source_type || ''),
+            sourceType: item.source_type || '',
+          }
+        } else {
+          console.warn(`[MonitorWall] Device ${item.device_id} stream registration failed:`, item.error)
+        }
+      })
+
+      streamMap.value = newMap
+    })
+  } catch (error) {
+    streamRegistering.value = false
+    streamLoading.value = false
+    streamError.value = true
+    console.error('Failed to register device streams:', error)
+  }
+}
+
 onMounted(() => {
-  fetchDeviceTree()
+  fetchDeviceTree().then(() => {
+    registerDeviceStreams()
+    if (selectedChannel.value) {
+      const rawId = parseRawChannelId(selectedChannel.value)
+      fetchDashboardData(rawId)
+      restartEventPolling(rawId)
+      restartDashboardPolling(rawId)
+    }
+  })
+  fetchAlgorithms()
   fetchAlarms()
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+})
+
+const stopSelectedChannelWatch = watch(selectedChannel, (newChannel) => {
+  if (!newChannel) return
+  const rawId = newChannel.replace(/^device-/, '')
+  if (!rawId) return
+  registerDeviceStream(rawId)
+  const rawNum = parseRawChannelId(newChannel)
+  fetchDashboardData(rawNum)
+  restartEventPolling(rawNum)
+  restartDashboardPolling(rawNum)
+})
+
+function handleVisibilityChange() {
+  const rawId = parseRawChannelId(selectedChannel.value)
+  if (document.hidden) {
+    clearEventPollTimer()
+    clearDashboardRefreshTimer()
+    clearStartStatusTimer()
+  } else if (rawId) {
+    fetchAlarms(rawId)
+    fetchDashboardData(rawId)
+    restartEventPolling(rawId)
+    restartDashboardPolling(rawId)
+  }
+}
+
+onUnmounted(() => {
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+  stopSelectedChannelWatch()
+  clearRestartPoll()
+  clearStreamRegisterPoll()
+  clearEventPollTimer()
+  clearDashboardRefreshTimer()
+  clearStartStatusTimer()
 })
 
 // 通道列表
@@ -321,7 +904,26 @@ const currentDevice = computed(() => {
 // 视频URL
 const currentVideoUrl = computed(() => {
   if (!currentDevice.value) return ''
-  return `ws://localhost:8080/stream/${currentDevice.value.id}`
+  return streamMap.value[currentDevice.value.id]?.url || ''
+})
+
+// 当前视频源类型
+const currentSourceType = computed(() => {
+  if (!currentDevice.value) return ''
+  return streamMap.value[currentDevice.value.id]?.sourceType || ''
+})
+
+// 当前视频协议
+const currentProtocol = computed(() => {
+  const url = currentVideoUrl.value
+  if (!url) return 'flv'
+  if (url.toLowerCase().endsWith('.m3u8')) return 'hls'
+  return 'flv'
+})
+
+// 是否使用原生视频播放本地文件
+const isNativeVideo = computed(() => {
+  return isLocalStream(currentSourceType.value, currentVideoUrl.value)
 })
 
 // 统计数据
@@ -334,20 +936,17 @@ const statsData = ref({
 })
 
 // 事件统计
-const eventStats = computed(() => {
-  const total = alarmList.value.length * 10 || 1
-  const legend = [
-    { name: '行人闯入', value: 64, color: '#00FFCC' },
-    { name: '异常停车', value: 32, color: '#0099FF' },
-    { name: '作业人员', value: 28, color: '#00EAFF' },
-    { name: '非机动车驶入', value: 19, color: '#FF9900' }
-  ]
-  return { total, legend }
+const eventStats = ref({
+  total: 0,
+  legend: [] as { name: string; value: number; color: string }[],
 })
 
 // 饼图样式
 const donutStyle = computed(() => {
   const legend = eventStats.value.legend
+  if (legend.length === 0 || eventStats.value.total === 0) {
+    return { background: 'conic-gradient(rgba(0,229,255,0.2) 0% 100%)' }
+  }
   let gradient = ''
   let currentPercent = 0
   legend.forEach((item, index) => {
@@ -372,16 +971,9 @@ const roadLevelPosition = computed(() => {
   return `${(level - 1) * 25}%`
 })
 
-// 布控数据
-const deploymentData = ref([])
-
 // 过滤后的事件
 const filteredEvents = computed(() => {
-  const events = [
-    ...alarmList.value,
-    ...alarmList.value.map(a => ({ ...a, id: a.id + 100, type: '非机动车驶入' })),
-    ...alarmList.value.map(a => ({ ...a, id: a.id + 200, type: '行人闯入' }))
-  ].slice(0, 8)
+  const events = alarmList.value.slice(0, 8)
   if (eventFilter.value === 'all') {
     return events
   }
@@ -497,6 +1089,28 @@ const filteredEvents = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 6px;
+}
+
+.right-panel::-webkit-scrollbar {
+  width: 6px;
+}
+
+.right-panel::-webkit-scrollbar-track {
+  background: rgba(0, 229, 255, 0.05);
+  border-radius: 3px;
+}
+
+.right-panel::-webkit-scrollbar-thumb {
+  background: rgba(0, 229, 255, 0.45);
+  border-radius: 3px;
+}
+
+.right-panel::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 229, 255, 0.7);
 }
 
 .panel-section {
@@ -504,6 +1118,7 @@ const filteredEvents = computed(() => {
   border: 1px solid rgba(0, 229, 255, 0.2);
   border-radius: 4px;
   padding: 12px;
+  flex-shrink: 0;
 }
 
 .section-header {
@@ -540,11 +1155,19 @@ const filteredEvents = computed(() => {
 /* 预览通道 */
 .channel-content {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
 .channel-select {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+.draw-btn,
+.restart-btn {
   flex: 1;
+  min-width: 0;
 }
 
 .draw-btn {
@@ -554,6 +1177,16 @@ const filteredEvents = computed(() => {
 
 .draw-btn:hover {
   background: rgba(0, 229, 255, 0.1);
+}
+
+.restart-btn {
+  border-color: #ff9f43;
+  color: #ff9f43;
+  background: transparent;
+}
+
+.restart-btn:hover {
+  background: rgba(255, 159, 67, 0.1);
 }
 
 /* 实时交通参数 */
@@ -756,6 +1389,16 @@ const filteredEvents = computed(() => {
   color: #00FF88;
 }
 
+.status-tag.offline {
+  background: rgba(120, 130, 150, 0.2);
+  color: rgba(180, 210, 235, 0.7);
+}
+
+.status-tag.warning {
+  background: rgba(255, 0, 110, 0.2);
+  color: #FF006E;
+}
+
 /* 视频质量检测 */
 .quality-section {
   display: flex;
@@ -840,14 +1483,15 @@ const filteredEvents = computed(() => {
   object-fit: cover;
 }
 
-.event-detection-box {
+.event-no-image {
   position: absolute;
-  top: 20%;
-  left: 15%;
-  width: 70%;
-  height: 50%;
-  border: 2px solid #FF006E;
-  border-radius: 2px;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 20, 40, 0.8);
+  color: rgba(180, 210, 235, 0.85);
+  font-size: 12px;
 }
 
 .event-label {

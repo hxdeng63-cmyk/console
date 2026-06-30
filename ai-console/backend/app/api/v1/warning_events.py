@@ -7,6 +7,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.media import ensure_valid_media_url
 from app.models.warning_event import WarningEvent
 from app.models.device import Device
 from app.models.event_type import EventType
@@ -41,6 +42,7 @@ async def list_warning_events(
     keyword: Optional[str] = Query(None),
     start_time: Optional[datetime] = Query(None),
     end_time: Optional[datetime] = Query(None),
+    device_id: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     """Return paginated warning events list."""
@@ -70,6 +72,8 @@ async def list_warning_events(
         query = query.where(WarningEvent.report_time >= start_time)
     if end_time:
         query = query.where(WarningEvent.report_time <= end_time)
+    if device_id:
+        query = query.where(WarningEvent.device_id == device_id)
 
     count_query = select(func.count()).select_from(query.subquery())
     total_result = await db.execute(count_query)
@@ -96,11 +100,11 @@ async def list_warning_events(
             "level": level,
             "location": event.event_detail or "未知位置",
             "status": event.process_status,
-            "imageUrl": event.image_url,
+            "imageUrl": ensure_valid_media_url(event.image_url),
             "deviceId": event.device_id,
             "eventDetail": event.event_detail,
             "isCompliant": event.is_compliant,
-            "videoUrl": event.video_url,
+            "videoUrl": ensure_valid_media_url(event.video_url),
         })
 
     return {
@@ -146,11 +150,11 @@ async def get_warning_event(item_id: int, db: AsyncSession = Depends(get_db)):
         level=level,
         location=event.event_detail or "未知位置",
         status=event.process_status,
-        imageUrl=event.image_url,
+        imageUrl=ensure_valid_media_url(event.image_url),
         deviceId=event.device_id,
         eventDetail=event.event_detail,
         isCompliant=event.is_compliant,
-        videoUrl=event.video_url,
+        videoUrl=ensure_valid_media_url(event.video_url),
     )
 
 

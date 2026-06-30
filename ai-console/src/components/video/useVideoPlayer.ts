@@ -73,7 +73,7 @@ export function useVideoPlayer(options: UseVideoPlayerOptions) {
     flvPlayer.on(flvjs.Events.ERROR, (_err, errType) => {
       console.error('FLV error:', errType)
       hasError.value = true
-      errorMessage.value = 'FLV playback error'
+      errorMessage.value = '无法连接到视频流服务器'
       isLoading.value = false
     })
 
@@ -108,6 +108,15 @@ export function useVideoPlayer(options: UseVideoPlayerOptions) {
         maxMaxBufferLength: 15,
         liveSyncDurationCount: 2,
         initialLiveManifestSize: 2,
+        xhrSetup: (xhr, url) => {
+          try {
+            if (new URL(url, window.location.href).origin === window.location.origin) {
+              xhr.withCredentials = true
+            }
+          } catch {
+            // Unparseable URL: leave default credentials mode to avoid CORS issues
+          }
+        },
       })
 
       hlsInstance.loadSource(url)
@@ -122,7 +131,7 @@ export function useVideoPlayer(options: UseVideoPlayerOptions) {
           } else {
             console.error('HLS fatal error:', data)
             hasError.value = true
-            errorMessage.value = 'HLS playback error'
+            errorMessage.value = '无法连接到视频流服务器'
             isLoading.value = false
           }
         }
@@ -146,6 +155,7 @@ export function useVideoPlayer(options: UseVideoPlayerOptions) {
   }
 
   function loadMedia() {
+    setBandwidthDisplay(false)
     isLoading.value = true
     hasError.value = false
     errorMessage.value = ''
@@ -192,6 +202,7 @@ export function useVideoPlayer(options: UseVideoPlayerOptions) {
 
   function switchUrl(url: string) {
     if (!url || !videoRef.value) return
+    setBandwidthDisplay(false)
     setUrl(url)
 
     // 跳过直接视频文件（mp4/webm/ogg/mov）—— 这些应由原生 <video> 播放

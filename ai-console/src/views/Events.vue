@@ -9,11 +9,21 @@
         <el-select v-model="searchForm.regionName" :placeholder="searchForm.companyName ? '区域' : '请先选择公司'" style="width: 120px" clearable :disabled="!searchForm.companyName">
           <el-option v-for="r in companyRegions" :key="r.id" :label="r.name" :value="r.name" />
         </el-select>
-        <el-select v-model="searchForm.algorithmName" placeholder="算法" style="width: 120px" clearable>
-          <el-option label="交通算法" value="交通算法" />
+        <el-select v-model="searchForm.algorithmName" placeholder="算法" style="width: 180px" clearable>
+          <el-option
+            v-for="algo in algorithmOptions"
+            :key="algo.value"
+            :label="algo.label"
+            :value="algo.value"
+          />
         </el-select>
         <el-select v-model="searchForm.eventType" placeholder="事件" style="width: 150px" clearable>
-          <el-option v-for="type in eventTypeOptions" :key="type" :label="type" :value="type" />
+          <el-option
+            v-for="type in eventTypeOptions"
+            :key="type.value"
+            :label="type.label"
+            :value="type.value"
+          />
         </el-select>
         <el-input v-model="searchForm.deviceName" placeholder="设备名称" style="width: 160px" clearable />
       </div>
@@ -82,8 +92,8 @@
     <div v-else class="image-grid">
       <div v-for="item in pagedData" :key="item.id" class="event-card" @click="handleDetail(item)">
         <div class="card-image">
-          <img :src="item.imageUrl" alt="事件图片" />
-          <div class="detect-box" :style="item.detectBox"></div>
+          <img :src="item.imageUrl" alt="事件图片" @error="handleImageError" />
+          <div class="image-placeholder" :style="{ display: item.imageUrl ? 'none' : 'flex' }">暂无图片</div>
         </div>
         <div class="card-info">
           <div class="info-item device-name">{{ item.deviceName }}</div>
@@ -130,8 +140,8 @@
     <el-dialog v-model="detailDialogVisible" title="预警详情" width="900px" :close-on-click-modal="false">
       <div class="detail-container">
         <div class="detail-image">
-          <img :src="currentRecord?.imageUrl" alt="事件图片" />
-          <div class="detect-box" :style="currentRecord?.detectBox"></div>
+          <img :src="currentRecord?.imageUrl" alt="事件图片" @error="handleImageError" />
+          <div class="image-placeholder" :style="{ display: currentRecord?.imageUrl ? 'none' : 'flex' }">暂无图片</div>
         </div>
         <div class="detail-info">
           <div class="info-section">
@@ -191,7 +201,7 @@
     <!-- 视频回放弹窗 -->
     <el-dialog v-model="videoDialogVisible" title="视频回放" width="800px" :close-on-click-modal="false">
       <div class="video-container">
-        <video v-if="currentVideoUrl" :src="currentVideoUrl" controls style="width: 100%; max-height: 500px;" />
+        <video v-if="currentVideoUrl && !videoError" :src="currentVideoUrl" controls style="width: 100%; max-height: 500px;" @error="handleVideoError" />
         <div v-else style="text-align: center; padding: 40px; color: #999;">暂无视频</div>
       </div>
     </el-dialog>
@@ -286,6 +296,9 @@ import { ElMessage } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { getDeviceGroupTree } from '@/api/device-groups'
 import { getRegionsByCompany } from '@/api/company-regions'
+import { getAlgorithms } from '@/api/algorithms'
+import { getEventTypes } from '@/api/event-types'
+import { getEventTypeDisplayName } from '@/utils/eventType'
 
 interface EventItem {
   id: number
@@ -300,28 +313,13 @@ interface EventItem {
   isCompliant: string
   imageUrl: string
   videoUrl: string
-  detectBox: { top: string; left: string; width: string; height: string }
 }
 
-// 16种事件类型
-const eventTypeOptions = [
-  '疑似事故',
-  '作业人员',
-  '交通阻塞',
-  '异常停车',
-  '烟雾',
-  '作业车辆识别',
-  '非机动车驶入',
-  '占用应急车道',
-  '逆向行驶',
-  '通过卡车数量',
-  '通过大客车数量',
-  '通过摩托车数量',
-  '通过小汽车数量',
-  '下行车流量',
-  '上行车流量',
-  '行人闯入'
-]
+// 事件类型选项，从后端 /event-types 动态加载
+const eventTypeOptions = ref<{ label: string; value: string }[]>([])
+
+const trafficAlgorithm = ref<any>(null)
+const algorithmOptions = ref<{ label: string; value: string }[]>([])
 
 const searchForm = reactive({
   companyName: '',
@@ -382,14 +380,15 @@ const fetchEvents = async () => {
       regionName: item.region_name || item.regionName || '',
       deviceName: item.device_name || item.device?.name || item.deviceName || '',
       algorithmName: item.algorithm_name || item.algorithmName || '',
-      eventTypeName: item.event_type_name || item.event_type?.name || item.eventTypeName || item.event_detail || '',
+      eventTypeName: getEventTypeDisplayName(
+        item.event_type_name || item.event_type?.name || item.eventTypeName || item.event_detail || ''
+      ),
       eventDetail: item.event_detail || item.eventDetail || '',
       processStatus: item.process_status || item.processStatus || '未处置',
       reportTime: item.report_time || item.reportTime || item.created_at || '',
       isCompliant: item.is_compliant !== undefined ? (item.is_compliant ? '是' : '否') : (item.isCompliant || '是'),
       imageUrl: item.image_url || item.imageUrl || '',
-      videoUrl: item.video_url || item.videoUrl || '',
-      detectBox: item.detect_box || item.detectBox || { top: '0%', left: '0%', width: '0%', height: '0%' }
+      videoUrl: item.video_url || item.videoUrl || ''
     }))
     totalCount.value = data.total || 0
   } catch (e) {
@@ -410,9 +409,42 @@ const loadTreeData = async () => {
   }
 }
 
+const loadAlgorithms = async () => {
+  try {
+    const res = await getAlgorithms({ page_size: 100 })
+    const data = res.data || res
+    const items = data.items || data || []
+    algorithmOptions.value = items
+      .filter((a: any) => a.name === 'traffic')
+      .map((a: any) => ({ label: a.description || a.name, value: a.name }))
+
+    trafficAlgorithm.value = items.find((a: any) => a.name === 'traffic')
+    if (trafficAlgorithm.value) {
+      searchForm.algorithmName = trafficAlgorithm.value.name
+      await loadEventTypes(trafficAlgorithm.value.id)
+    }
+  } catch (e) {
+    console.error('加载算法列表失败:', e)
+  }
+}
+
+const loadEventTypes = async (algorithmId: number) => {
+  try {
+    const res = await getEventTypes({ algorithm_id: algorithmId, page_size: 100 })
+    const data = res.data || res
+    const items = data.items || data || []
+    eventTypeOptions.value = items.map((item: any) => ({
+      label: item.description || getEventTypeDisplayName(item.name),
+      value: item.name,
+    }))
+  } catch (e) {
+    console.error('加载事件类型失败:', e)
+  }
+}
+
 onMounted(() => {
   loadTreeData()
-  fetchEvents()
+  loadAlgorithms().then(() => fetchEvents())
 })
 
 // 详情弹窗
@@ -422,6 +454,11 @@ const currentRecord = ref<EventItem | null>(null)
 // 视频回放弹窗
 const videoDialogVisible = ref(false)
 const currentVideoUrl = ref('')
+const videoError = ref(false)
+
+const handleVideoError = () => {
+  videoError.value = true
+}
 
 // 导出弹窗
 const exportDialogVisible = ref(false)
@@ -509,6 +546,9 @@ const handleReset = () => {
   })
   companyRegions.value = []
   currentPage.value = 1
+  if (trafficAlgorithm.value) {
+    searchForm.algorithmName = trafficAlgorithm.value.name
+  }
   fetchEvents()
   ElMessage.success('重置成功')
 }
@@ -522,6 +562,13 @@ const confirmExport = () => {
   exportDialogVisible.value = false
 }
 
+const handleImageError = (e: Event) => {
+  const img = e.target as HTMLImageElement
+  img.style.display = 'none'
+  const placeholder = img.nextElementSibling as HTMLElement | null
+  if (placeholder) placeholder.style.display = 'flex'
+}
+
 const handleDetail = (row: EventItem) => {
   currentRecord.value = row
   detailDialogVisible.value = true
@@ -530,12 +577,14 @@ const handleDetail = (row: EventItem) => {
 const handleVideo = (row: EventItem) => {
   currentRecord.value = row
   currentVideoUrl.value = row.videoUrl || ''
+  videoError.value = false
   videoDialogVisible.value = true
 }
 
 const handleVideoPlayback = () => {
   if (currentRecord.value) {
     currentVideoUrl.value = currentRecord.value.videoUrl || ''
+    videoError.value = false
     videoDialogVisible.value = true
   }
 }
@@ -724,17 +773,22 @@ const handlePenaltySubmit = async () => {
   overflow: hidden;
 }
 
-.card-image img {
+.card-image img,
+.detail-image img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-.detect-box {
+.image-placeholder {
   position: absolute;
-  border: 2px solid #FF006E;
-  border-radius: 2px;
-  pointer-events: none;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 20, 40, 0.6);
+  color: var(--text-secondary);
+  font-size: 14px;
 }
 
 .card-info {
@@ -801,12 +855,6 @@ const handlePenaltySubmit = async () => {
   flex-shrink: 0;
   border-radius: 8px;
   overflow: hidden;
-}
-
-.detail-image img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
 }
 
 .detail-info {

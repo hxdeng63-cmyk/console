@@ -55,7 +55,7 @@ async def list_algorithms(
         events_result = await db.execute(events_query)
         for ev in events_result.scalars().all():
             events_map.setdefault(ev.algorithm_id, []).append(
-                AlgorithmEventItem(name=ev.name, description=ev.description)
+                AlgorithmEventItem(name=ev.name, description=ev.description, module_name=ev.module_name)
             )
 
     response_items = []
@@ -99,7 +99,7 @@ async def get_algorithm(algorithm_id: int, db: AsyncSession = Depends(get_db)):
     )
     events_result = await db.execute(events_query)
     events = [
-        AlgorithmEventItem(name=ev.name, description=ev.description)
+        AlgorithmEventItem(name=ev.name, description=ev.description, module_name=ev.module_name)
         for ev in events_result.scalars().all()
     ]
 

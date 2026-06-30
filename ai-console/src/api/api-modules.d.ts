@@ -64,7 +64,9 @@ declare module '@/api/cleanRecords' {
   export const updateCleanRecord: (id: any, data: any) => Promise<any>
   export const deleteCleanRecord: (id: any) => Promise<any>
   export const executeCleanRecord: (data: any) => Promise<any>
+  export const executeCleanRecordAsync: (data: any) => Promise<any>
   export const getCleanStatus: (id: any) => Promise<any>
+  export const getExecuteCleanRecordStatus: (taskId: any) => Promise<any>
 }
 
 declare module '@/api/cleanupPolicy' {
@@ -96,6 +98,10 @@ declare module '@/api/deployment' {
     create: (data: any) => Promise<any>
     update: (id: any, data: any) => Promise<any>
     delete: (id: any) => Promise<any>
+    restartAll: () => Promise<any>
+    getRestartAllStatus: (taskId: any) => Promise<any>
+    start: (id: any, data: any) => Promise<any>
+    startStatus: (id: any, taskId: any) => Promise<any>
     listAlgorithms: (params?: any) => Promise<any>
     listServices: (params?: any) => Promise<any>
     listDevices: (params?: any) => Promise<any>
@@ -339,6 +345,12 @@ declare module '@/api/resources' {
   export const updateResourceButtons: (id: any, data: any) => Promise<any>
 }
 
+declare module '@/api/stream' {
+  export const registerDevicesAsync: (deviceIds: any[]) => Promise<any>
+  export const getRegisterDevicesStatus: (taskId: any) => Promise<any>
+  export const getDeviceFlvUrl: (deviceId: any) => Promise<any>
+}
+
 declare module '@/api/roles' {
   export const getRoles: (params?: any) => Promise<any>
   export const getRole: (id: any) => Promise<any>
@@ -487,4 +499,38 @@ declare module '@/api/regions.js' {
   export const getRegionTree: () => Promise<any>
   export const getFullRegionTree: () => Promise<any>
   export const getRegionDevices: (id: any, params?: any) => Promise<any>
+}
+
+declare module '@/api/video-settings' {
+  export const getVideoSettings: (params?: any) => Promise<any>
+  export const getVideoSetting: (id: any) => Promise<any>
+  export const createVideoSetting: (data: any) => Promise<any>
+  export const updateVideoSetting: (id: any, data: any) => Promise<any>
+  export const deleteVideoSetting: (id: any) => Promise<any>
+  export const toggleVideoSettingStatus: (id: any) => Promise<any>
+}
+
+declare module '@/api/video-settings.js' {
+  export const getVideoSettings: (params?: any) => Promise<any>
+  export const getVideoSetting: (id: any) => Promise<any>
+  export const createVideoSetting: (data: any) => Promise<any>
+  export const updateVideoSetting: (id: any, data: any) => Promise<any>
+  export const deleteVideoSetting: (id: any) => Promise<any>
+  export const toggleVideoSettingStatus: (id: any) => Promise<any>
+}
+
+declare module '@/api/pt-weight-files' {
+  export const getPTWeightFiles: (params?: any) => Promise<any>
+  export const getPTWeightFile: (id: any) => Promise<any>
+  export const createPTWeightFile: (data: any) => Promise<any>
+  export const updatePTWeightFile: (id: any, data: any) => Promise<any>
+  export const deletePTWeightFile: (id: any) => Promise<any>
+}
+
+declare module '@/api/pt-weight-files.js' {
+  export const getPTWeightFiles: (params?: any) => Promise<any>
+  export const getPTWeightFile: (id: any) => Promise<any>
+  export const createPTWeightFile: (data: any) => Promise<any>
+  export const updatePTWeightFile: (id: any, data: any) => Promise<any>
+  export const deletePTWeightFile: (id: any) => Promise<any>
 }

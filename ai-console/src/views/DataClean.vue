@@ -122,9 +122,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getCleanRecords, executeCleanRecord } from '@/api/cleanRecords'
+import { getCleanRecords, executeCleanRecordAsync, getExecuteCleanRecordStatus } from '@/api/cleanRecords'
 import { getCleanupPolicy, updateCleanupPolicy } from '@/api/cleanupPolicy'
 
 interface CleanRecord {
@@ -150,10 +150,46 @@ const cleanRecords = ref<CleanRecord[]>([])
 const currentPage = ref(1)
 const pageSize = ref(10)
 const loading = ref(false)
+let cleanExecutePollTimer: ReturnType<typeof setInterval> | null = null
 
 const pagedData = computed(() => {
   const start = (currentPage.value - 1) * pageSize.value
   return cleanRecords.value.slice(start, start + pageSize.value)
+})
+
+function clearCleanExecutePoll() {
+  if (cleanExecutePollTimer) {
+    clearInterval(cleanExecutePollTimer)
+    cleanExecutePollTimer = null
+  }
+}
+
+function startCleanExecutePoll(taskId: string) {
+  clearCleanExecutePoll()
+  cleanExecutePollTimer = setInterval(async () => {
+    try {
+      const status: any = await getExecuteCleanRecordStatus(taskId)
+      if (status.status === 'completed' || status.status === 'failed') {
+        clearCleanExecutePoll()
+        loading.value = false
+        if (status.status === 'completed') {
+          ElMessage.success(`清理完成：共清理 ${status.records_cleaned || 0} 条记录`)
+          await fetchCleanRecords()
+        } else {
+          ElMessage.error('清理失败：' + (status.error || '未知错误'))
+          await fetchCleanRecords()
+        }
+      }
+    } catch (pollError: any) {
+      clearCleanExecutePoll()
+      loading.value = false
+      ElMessage.error('轮询清理进度失败：' + (pollError?.message || '未知错误'))
+    }
+  }, 2000)
+}
+
+onUnmounted(() => {
+  clearCleanExecutePoll()
 })
 
 const fetchCleanupPolicy = async () => {
@@ -214,9 +250,12 @@ const handleSubmit = async () => {
           : form.value.videoEnabled
             ? 'video_file'
             : 'all'
-      await executeCleanRecord({ dimension })
-      ElMessage.success('清理任务已提交')
-      await fetchCleanRecords()
+      const { task_id }: any = await executeCleanRecordAsync({ dimension })
+      if (!task_id) {
+        throw new Error('未返回任务 ID')
+      }
+      ElMessage.info('清理任务已启动，正在轮询进度…')
+      startCleanExecutePoll(task_id)
     } else {
       await updateCleanupPolicy({
         alert_enabled: form.value.alertEnabled,
@@ -227,11 +266,11 @@ const handleSubmit = async () => {
         execute_time: form.value.executeTime,
       })
       ElMessage.success('策略配置已保存')
+      loading.value = false
     }
   } catch (error: any) {
-    ElMessage.error(error.message || '操作失败')
-  } finally {
     loading.value = false
+    ElMessage.error(error.message || '操作失败')
   }
 }
 

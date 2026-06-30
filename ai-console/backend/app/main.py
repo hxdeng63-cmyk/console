@@ -8,10 +8,12 @@ from fastapi.staticfiles import StaticFiles
 from app.api.v1 import router as api_v1_router
 from app.core.database import engine, AsyncSessionLocal
 from app.core.database import Base
+from app.models.deployment import Deployment
 from app.models.operation_log import OperationLog
+from app.services.process_monitor import ProcessMonitor
 
-# 注册 SQLAlchemy event listeners (WarningEvent -> File auto-creation)
-from app.models.events import create_file_records_on_insert, sync_file_records_on_update
+# Register SQLAlchemy event监听器 (WarningEvent -> File 更新同步)
+from app.models.events import sync_file_records_on_update
 
 # Configure uvicorn/access logging
 logging.getLogger("uvicorn").setLevel(logging.INFO)
@@ -25,6 +27,37 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+async def _update_deployment_status(
+    deployment_id: int,
+    status: str,
+    pid: int | None,
+    token: str | None = None,
+) -> None:
+    """Callback used by ProcessMonitor to persist deployment status changes.
+
+    `token` is forwarded when the monitor rotated the deployment_token
+    (e.g. on a watchdog restart). When provided, we must persist the new
+    value so subsequent ingest requests with the rotated token succeed.
+    """
+    try:
+        async with AsyncSessionLocal() as db:
+            deployment = await db.get(Deployment, deployment_id)
+            if deployment is None:
+                return
+            deployment.algorithm_status = status
+            deployment.pid = pid
+            if token is not None:
+                deployment.deployment_token = token
+            if status == "running":
+                deployment.started_at = datetime.utcnow()
+                deployment.stopped_at = None
+            elif status in ("stopped", "error", "crashed", "completed"):
+                deployment.stopped_at = datetime.utcnow()
+            await db.commit()
+    except Exception:
+        logger.exception("Failed to update deployment %s status to %s", deployment_id, status)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: create all database tables
@@ -36,11 +69,23 @@ async def lifespan(app: FastAPI):
     from app.core.scheduler import start_scheduler
     start_scheduler()
 
+    # Reconcile any zombie deployments left by a previous backend process
+    monitor = ProcessMonitor()
+    async with AsyncSessionLocal() as db:
+        await monitor.reconcile(db)
+    logger.info("Deployment process reconciliation completed")
+
+    # Register DB status callback and start the watchdog loop.
+    monitor.register_status_callback(_update_deployment_status)
+    monitor.start_watchdog()
+    logger.info("ProcessMonitor watchdog started")
+
     yield
 
     # Shutdown
     from app.core.scheduler import shutdown_scheduler
     shutdown_scheduler()
+    await monitor.stop_watchdog()
     await engine.dispose()
 
 

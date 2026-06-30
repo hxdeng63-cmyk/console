@@ -9,7 +9,7 @@
           <el-option
             v-for="et in eventTypeList"
             :key="et.id"
-            :label="et.name"
+            :label="et.description || getEventTypeDisplayName(et.name)"
             :value="et.name"
           />
         </el-select>
@@ -51,7 +51,7 @@
             <el-icon v-else-if="row.isEventType" :size="16" class="node-icon event-type-icon"><Calendar /></el-icon>
             <el-icon v-else-if="row.fileType === '视频'" :size="16" class="node-icon video-icon"><VideoCamera /></el-icon>
             <el-icon v-else :size="16" class="node-icon image-icon"><Picture /></el-icon>
-            <span class="node-name" :class="{ 'company-name': row.isCompany, 'region-name': row.isRegion }">{{ row.name }}</span>
+            <span class="node-name" :class="{ 'company-name': row.isCompany, 'region-name': row.isRegion }">{{ row.isEventType ? getEventTypeDisplayName(row.name) : row.name }}</span>
           </div>
         </template>
       </el-table-column>
@@ -60,7 +60,7 @@
       <el-table-column label="事件类型" width="130" align="center">
         <template #default="{ row }">
           <el-tag v-if="row.isFile && row.eventType" size="small" effect="plain" class="event-type-tag">
-            {{ row.eventType }}
+            {{ getEventTypeDisplayName(row.eventType) }}
           </el-tag>
           <span v-else class="node-placeholder">—</span>
         </template>
@@ -71,13 +71,15 @@
         <template #default="{ row }">
           <template v-if="row.isFile">
             <div v-if="row.fileType === '图片'" class="preview-wrapper" @click="openImagePreview(row)">
-              <img :src="row.previewUrl" class="preview-thumb" />
+              <img v-if="!row.previewError" :src="row.previewUrl" class="preview-thumb" @error="handlePreviewError(row)" />
+              <div v-else class="preview-error">加载失败</div>
               <div class="preview-overlay">
                 <el-icon :size="20"><ZoomIn /></el-icon>
               </div>
             </div>
             <div v-else class="preview-wrapper video" @click="openVideoPreview(row)">
-              <img :src="row.previewUrl" class="preview-thumb" />
+              <img v-if="!row.previewError" :src="row.previewUrl" class="preview-thumb" @error="handlePreviewError(row)" />
+              <div v-else class="preview-error">加载失败</div>
               <div class="preview-overlay">
                 <el-icon :size="24"><VideoPlay /></el-icon>
               </div>
@@ -138,7 +140,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Search, ArrowDown, ArrowUp,
@@ -147,6 +149,7 @@ import {
 } from '@element-plus/icons-vue'
 import { getFileTree } from '@/api/files.js'
 import { getEventTypes } from '@/api/event-types.js'
+import { getEventTypeDisplayName } from '@/utils/eventType'
 
 interface FileNode {
   id: number | string
@@ -159,13 +162,14 @@ interface FileNode {
   eventType?: string
   previewUrl?: string
   filePath?: string
+  previewError?: boolean
   children?: FileNode[]
 }
 
 const treeData = ref<FileNode[]>([])
 const loading = ref(false)
 const tableRef = ref()
-const eventTypeList = ref<{ id: number; name: string }[]>([])
+const eventTypeList = ref<{ id: number; name: string; description?: string }[]>([])
 
 onMounted(async () => {
   loading.value = true
@@ -256,6 +260,10 @@ const currentPreviewUrl = ref('')
 const openImagePreview = (row: FileNode) => {
   currentPreviewUrl.value = row.previewUrl || ''
   imagePreviewVisible.value = true
+}
+
+const handlePreviewError = (row: FileNode) => {
+  row.previewError = true
 }
 
 const videoDialogVisible = ref(false)
@@ -427,6 +435,17 @@ function deleteNode(nodes: FileNode[], targetId: number | string): boolean {
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+.preview-error {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.05);
+  color: #909399;
+  font-size: 12px;
 }
 
 .preview-overlay {

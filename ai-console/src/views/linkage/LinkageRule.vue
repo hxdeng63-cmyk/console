@@ -233,6 +233,7 @@ import { getAlgorithms } from '@/api/algorithms'
 import { getEventTypes } from '@/api/event-types'
 import { getDeviceGroupTree } from '@/api/device-groups'
 import { getOrganizationTree } from '@/api/organizations'
+import { getEventTypeDisplayName } from '@/utils/eventType'
 
 interface PushChannelConfig {
   name: string
@@ -399,10 +400,10 @@ onMounted(async () => {
     const eList = eventData.items || eventData || []
     const eMap = new Map<number, string>()
     for (const ev of eList) {
-      eMap.set(ev.id, ev.name)
+      eMap.set(ev.id, ev.description || getEventTypeDisplayName(ev.name))
     }
     eventNameMap.value = eMap
-    eventTypeOptions.value = eList.map((e: any) => ({ id: e.id, name: e.name }))
+    eventTypeOptions.value = eList.map((e: any) => ({ id: e.id, name: e.description || getEventTypeDisplayName(e.name) }))
 
     deviceTreeData.value = preprocessDeviceTree(deviceTree || [])
     orgTreeData.value = orgTree || []

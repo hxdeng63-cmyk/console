@@ -1,4 +1,4 @@
-import request from './index'
+import request from '@/api/index'
 
 export const getRegions = (params?: any) => request.get('/regions', { params })
 export const getRegion = (id: number | string) => request.get(`/regions/${id}`)

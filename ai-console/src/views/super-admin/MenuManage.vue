@@ -401,20 +401,6 @@ const parentTitleMap = computed(() => {
   return map
 })
 
-const allExpandableIds = computed(() => {
-  const ids: number[] = []
-  const walk = (items: MenuItem[]) => {
-    items.forEach(item => {
-      if (item.children && item.children.length > 0) {
-        ids.push(item.id)
-        walk(item.children)
-      }
-    })
-  }
-  walk(tableData.value)
-  return ids
-})
-
 const expandAll = ref(true)
 const tableRef = ref()
 const toggleExpand = () => {

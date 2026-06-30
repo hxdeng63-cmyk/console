@@ -114,7 +114,7 @@
                 :key="et.id"
                 :value="et.id"
               >
-                {{ et.name }}
+                {{ getEventTypeDisplayName(et.name) }}
               </el-checkbox>
             </el-checkbox-group>
           </div>
@@ -147,7 +147,9 @@ import {
   toggleVideoSettingStatus
 } from '@/api/video-settings'
 import { getEventTypes } from '@/api/event-types'
+import { getAlgorithms } from '@/api/algorithms'
 import { getDeviceGroupTree } from '@/api/device-groups'
+import { getEventTypeDisplayName } from '@/utils/eventType'
 
 interface VideoSettingItem {
   id: number
@@ -178,6 +180,7 @@ interface DeviceItem {
 
 const tableData = ref<VideoSettingItem[]>([])
 const eventTypeList = ref<EventTypeItem[]>([])
+const trafficAlgorithm = ref<any>(null)
 const orgList = ref<OrgItem[]>([])
 const deviceList = ref<DeviceItem[]>([])
 const loading = ref(false)
@@ -202,7 +205,7 @@ const pagedData = computed(() => {
 
 const getEventName = (eventId: number) => {
   const et = eventTypeList.value.find(e => e.id === eventId)
-  return et ? et.name : `事件${eventId}`
+  return et ? getEventTypeDisplayName(et.name) : `事件${eventId}`
 }
 
 const onStatusChange = async (row: VideoSettingItem) => {
@@ -272,7 +275,16 @@ const fetchData = async () => {
 
 const fetchEventTypes = async () => {
   try {
-    const res = await getEventTypes({ page_size: 100 })
+    const algoRes = await getAlgorithms({ page_size: 100 })
+    const algoData = algoRes.data || algoRes
+    const algorithms = algoData.items || algoData || []
+    trafficAlgorithm.value = algorithms.find((a: any) => a.name === 'traffic')
+
+    const params: any = { page_size: 100 }
+    if (trafficAlgorithm.value?.id) {
+      params.algorithm_id = trafficAlgorithm.value.id
+    }
+    const res = await getEventTypes(params)
     const data = res.data || res
     eventTypeList.value = data.items || []
   } catch (e) {

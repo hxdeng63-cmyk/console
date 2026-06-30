@@ -18,9 +18,13 @@ def _build_base_query(
     region_ids: Optional[list[int]] = None,
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
+    device_id: Optional[int] = None,
 ):
     """共享过滤逻辑。start_date/end_date 为 datetime 对象，确保类型安全。"""
     query = query.where(WarningEvent.deleted_at.is_(None))
+
+    if device_id:
+        query = query.where(WarningEvent.device_id == device_id)
 
     # report_time 为 NULL 的记录用 created_at 兜底
     if org_id:
@@ -61,6 +65,7 @@ def _get_today_start() -> datetime:
 async def get_today_stats(
     org_id: Optional[int] = None,
     region_ids: Optional[list[int]] = Query(None),
+    device_id: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db)
 ):
     today_start = _get_today_start()
@@ -69,7 +74,7 @@ async def get_today_stats(
         EventType.name,
         func.count(WarningEvent.id)
     ).select_from(WarningEvent).join(WarningEvent.event_type)
-    query = _build_base_query(query, org_id=org_id, region_ids=region_ids, start_date=today_start)
+    query = _build_base_query(query, org_id=org_id, region_ids=region_ids, start_date=today_start, device_id=device_id)
     query = query.group_by(EventType.name)
 
     result = await db.execute(query)
@@ -83,6 +88,7 @@ async def get_today_stats(
 async def get_violation_stats(
     org_id: Optional[int] = None,
     region_ids: Optional[list[int]] = Query(None),
+    device_id: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db)
 ):
     today_start = _get_today_start()
@@ -93,7 +99,7 @@ async def get_violation_stats(
     ).select_from(WarningEvent).join(WarningEvent.event_type).where(
         WarningEvent.is_compliant == False
     )
-    query = _build_base_query(query, org_id=org_id, region_ids=region_ids, start_date=today_start)
+    query = _build_base_query(query, org_id=org_id, region_ids=region_ids, start_date=today_start, device_id=device_id)
     query = query.group_by(EventType.name)
 
     result = await db.execute(query)
@@ -108,12 +114,13 @@ async def get_algorithm_summary(
     region_ids: Optional[list[int]] = Query(None),
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    device_id: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db)
 ):
     query = select(func.count(WarningEvent.id))
     start_dt = _parse_date(start_date)
     end_dt = _parse_date(end_date)
-    query = _build_base_query(query, org_id=org_id, region_ids=region_ids, start_date=start_dt, end_date=end_dt)
+    query = _build_base_query(query, org_id=org_id, region_ids=region_ids, start_date=start_dt, end_date=end_dt, device_id=device_id)
 
     result = await db.execute(query)
     total = result.scalar() or 0
@@ -127,6 +134,7 @@ async def get_scene_stats(
     region_ids: Optional[list[int]] = Query(None),
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    device_id: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db)
 ):
     query = select(
@@ -136,7 +144,7 @@ async def get_scene_stats(
     ).select_from(WarningEvent).join(WarningEvent.event_type)
     start_dt = _parse_date(start_date)
     end_dt = _parse_date(end_date)
-    query = _build_base_query(query, org_id=org_id, region_ids=region_ids, start_date=start_dt, end_date=end_dt)
+    query = _build_base_query(query, org_id=org_id, region_ids=region_ids, start_date=start_dt, end_date=end_dt, device_id=device_id)
     query = query.group_by(EventType.id, EventType.name)
 
     result = await db.execute(query)
@@ -173,6 +181,7 @@ async def get_trend_stats(
     region_ids: Optional[list[int]] = Query(None),
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    device_id: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db)
 ):
     time_trunc = _get_time_trunc(dimension)
@@ -184,7 +193,7 @@ async def get_trend_stats(
     ).select_from(WarningEvent).join(WarningEvent.algorithm)
     start_dt = _parse_date(start_date)
     end_dt = _parse_date(end_date)
-    query = _build_base_query(query, org_id=org_id, region_ids=region_ids, start_date=start_dt, end_date=end_dt)
+    query = _build_base_query(query, org_id=org_id, region_ids=region_ids, start_date=start_dt, end_date=end_dt, device_id=device_id)
     query = query.group_by("time_bucket", Algorithm.name).order_by("time_bucket")
 
     result = await db.execute(query)
@@ -213,6 +222,7 @@ async def get_event_trend_stats(
     region_ids: Optional[list[int]] = Query(None),
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    device_id: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db)
 ):
     time_trunc = _get_time_trunc(dimension)
@@ -223,7 +233,7 @@ async def get_event_trend_stats(
     )
     start_dt = _parse_date(start_date)
     end_dt = _parse_date(end_date)
-    query = _build_base_query(query, org_id=org_id, region_ids=region_ids, start_date=start_dt, end_date=end_dt)
+    query = _build_base_query(query, org_id=org_id, region_ids=region_ids, start_date=start_dt, end_date=end_dt, device_id=device_id)
 
     if event_type_id:
         query = query.where(WarningEvent.event_type_id == event_type_id)

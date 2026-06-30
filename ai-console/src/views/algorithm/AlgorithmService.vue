@@ -44,9 +44,12 @@
       <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
         <el-form-item label="算法选择" prop="serviceName">
           <el-select v-model="form.serviceName" placeholder="请选择算法服务" style="width: 100%">
-            <el-option label="目标检测" value="目标检测" />
-            <el-option label="行为分析" value="行为分析" />
-            <el-option label="烟火检测" value="烟火检测" />
+            <el-option
+              v-for="algo in algorithmOptions"
+              :key="algo.value"
+              :label="algo.label"
+              :value="algo.value"
+            />
           </el-select>
         </el-form-item>
         <el-form-item label="算法设置">
@@ -124,6 +127,7 @@ import { ref, computed, reactive, onMounted } from 'vue'
 import { Plus, Delete } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getAlgorithmServices, createAlgorithmService, updateAlgorithmService } from '@/api/algorithm-services'
+import { getAlgorithms } from '@/api/algorithms'
 
 interface ServiceItem {
   id: number
@@ -146,10 +150,27 @@ interface ConfigItem {
 
 const loading = ref(false)
 const tableData = ref<ServiceItem[]>([])
+const algorithmOptions = ref<{ label: string; value: string }[]>([])
+const trafficAlgorithmName = ref('')
+
+const loadAlgorithms = async () => {
+  try {
+    const res = await getAlgorithms({ page_size: 100 })
+    const data = res.data || res
+    const items = data.items || data || []
+    algorithmOptions.value = items
+      .filter((a: any) => a.name === 'traffic')
+      .map((a: any) => ({ label: a.description || a.name, value: a.name }))
+    trafficAlgorithmName.value = algorithmOptions.value[0]?.value || ''
+  } catch (e) {
+    console.error('加载算法列表失败:', e)
+  }
+}
 
 onMounted(async () => {
   loading.value = true
   try {
+    await loadAlgorithms()
     const data = await getAlgorithmServices()
     tableData.value = data.items || data
   } catch (error) {
@@ -194,6 +215,7 @@ const removeConfig = (index: number) => {
 
 const openAddModal = () => {
   Object.assign(form, defaultForm())
+  form.serviceName = trafficAlgorithmName.value
   editingId.value = null
   dialogTitle.value = '添加服务'
   dialogVisible.value = true
@@ -202,8 +224,9 @@ const openAddModal = () => {
 const openEditModal = (row: ServiceItem) => {
   editingId.value = row.id
   dialogTitle.value = '编辑服务'
+  const validValue = algorithmOptions.value.some((o) => o.value === row.serviceName)
   Object.assign(form, {
-    serviceName: row.serviceName,
+    serviceName: validValue ? row.serviceName : trafficAlgorithmName.value,
     configs: []
   })
   dialogVisible.value = true

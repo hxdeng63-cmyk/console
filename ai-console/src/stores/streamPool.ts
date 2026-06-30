@@ -28,9 +28,15 @@ export interface PoolDevice {
   streamName?: string
 }
 
+function isDirectVideoUrl(url: string): boolean {
+  return /\.(mp4|webm|ogg|mov)(\?.*)?$/i.test(url)
+}
+
 function isHlsDevice(device: PoolDevice): boolean {
+  // Hot pool only includes network streams (RTSP/RTMP/HTTP/HTTPS live streams)
+  // Local MP4 and direct HTTP/HTTPS MP4 files must be excluded
   if (device.sourceType === 'stream') return true
-  if (device.url && device.url.toLowerCase().endsWith('.m3u8')) return true
+  if (device.sourceType === 'http' && !isDirectVideoUrl(device.url)) return true
   return false
 }
 

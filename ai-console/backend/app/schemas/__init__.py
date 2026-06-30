@@ -1,6 +1,8 @@
-from pydantic import BaseModel, Field, ConfigDict, computed_field
+from pydantic import BaseModel, Field, ConfigDict, computed_field, field_validator
 from datetime import datetime
 from typing import Optional, Any
+
+from app.core.media import ensure_valid_media_url
 
 
 class PageParams(BaseModel):
@@ -33,6 +35,7 @@ class AlgorithmUpdate(AlgorithmBase):
 class AlgorithmEventItem(BaseModel):
     name: str
     description: Optional[str] = None
+    module_name: Optional[str] = None
 
 
 class AlgorithmResponse(AlgorithmBase):
@@ -226,6 +229,11 @@ class FileRecordResponse(FileRecordBase):
     created_at: datetime
     updated_at: datetime
     deleted_at: Optional[datetime] = None
+
+    @field_validator('url', 'storage_path', mode='before')
+    @classmethod
+    def validate_media_url(cls, v: Optional[str]) -> Optional[str]:
+        return ensure_valid_media_url(v)
 
     class Config:
         from_attributes = True

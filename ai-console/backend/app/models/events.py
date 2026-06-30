@@ -26,25 +26,6 @@ def _build_file_record(target, url: str, source_type: FileSourceType) -> dict:
     }
 
 
-@event.listens_for(WarningEvent, 'after_insert')
-def create_file_records_on_insert(mapper, connection, target):
-    """WarningEvent 插入后自动创建 File 记录。"""
-    file_table = File.__table__
-    files_to_create = []
-
-    if target.image_url:
-        files_to_create.append(_build_file_record(
-            target, target.image_url, FileSourceType.WARNING_EVENT_IMAGE
-        ))
-    if target.video_url:
-        files_to_create.append(_build_file_record(
-            target, target.video_url, FileSourceType.WARNING_EVENT_VIDEO
-        ))
-
-    if files_to_create:
-        connection.execute(file_table.insert(), files_to_create)
-
-
 @event.listens_for(WarningEvent, 'after_update')
 def sync_file_records_on_update(mapper, connection, target):
     """

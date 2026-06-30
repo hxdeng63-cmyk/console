@@ -12,8 +12,10 @@ class EventType(BaseModel):
     description: Mapped[str | None] = mapped_column(String(500), nullable=True)
     category: Mapped[str] = mapped_column(String(20), default="detection")
     severity: Mapped[int] = mapped_column(default=1)
+    module_name: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     __table_args__ = (
         Index("idx_event_type_algorithm", "algorithm_id"),
         Index("idx_event_type_category", "category"),
+        Index("idx_event_type_module_name", "module_name"),
     )

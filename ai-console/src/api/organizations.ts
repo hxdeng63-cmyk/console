@@ -1,3 +1,3 @@
-import request from './index'
+import request from '@/api/index'
 
 export const getOrganizationTree = () => request.get('/organizations/tree')

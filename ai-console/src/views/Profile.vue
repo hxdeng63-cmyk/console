@@ -37,7 +37,7 @@
         </el-form-item>
         <el-form-item label="照片">
           <div class="avatar-upload" @click="triggerUpload">
-            <img v-if="avatarUrl" :src="avatarUrl" class="avatar-img" />
+            <img v-if="avatarUrl && !avatarError" :src="avatarUrl" class="avatar-img" @error="handleAvatarError" />
             <div v-else class="avatar-placeholder">
               <el-icon :size="32"><Plus /></el-icon>
             </div>
@@ -89,7 +89,12 @@ const formRef = ref()
 const pwdFormRef = ref()
 const fileInput = ref<HTMLInputElement>()
 const avatarUrl = ref('/admin.jpg')
+const avatarError = ref(false)
 const passwordVisible = ref(false)
+
+const handleAvatarError = () => {
+  avatarError.value = true
+}
 
 const form = reactive({
   phone: '18688888888',
@@ -124,7 +129,10 @@ const triggerUpload = () => fileInput.value?.click()
 
 const onFileChange = (e: Event) => {
   const file = (e.target as HTMLInputElement).files?.[0]
-  if (file) avatarUrl.value = URL.createObjectURL(file)
+  if (file) {
+    avatarUrl.value = URL.createObjectURL(file)
+    avatarError.value = false
+  }
 }
 
 const handleCancel = () => router.back()

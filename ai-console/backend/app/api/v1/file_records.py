@@ -5,6 +5,7 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.media import ensure_valid_media_url
 from app.models import File
 from app.schemas import (
     FileRecordCreate, FileRecordUpdate, FileRecordResponse,
@@ -154,8 +155,8 @@ async def get_file_tree(
             "isFile": True,
             "fileType": file_record.file_type or "视频",
             "eventType": event_type_name,
-            "previewUrl": file_record.url or "",
-            "filePath": file_record.storage_path or "",
+            "previewUrl": ensure_valid_media_url(file_record.url) or "",
+            "filePath": ensure_valid_media_url(file_record.storage_path) or "",
         })
 
     tree = []

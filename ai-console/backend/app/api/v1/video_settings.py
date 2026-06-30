@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -5,6 +6,8 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+
+logger = logging.getLogger(__name__)
 from app.models.video_setting import VideoSetting
 from app.models.organization import Organization
 from app.models.device import Device
@@ -13,7 +16,11 @@ from app.schemas import (
     PaginatedResponse
 )
 
+from app.services.deployment_sync import DeploymentSyncService
+
 router = APIRouter(prefix="/video-settings", tags=["录像设置管理"])
+
+_sync_service = DeploymentSyncService()
 
 
 async def _enrich_video_setting(item: VideoSetting, db: AsyncSession) -> dict:
@@ -107,6 +114,12 @@ async def create_video_setting(data: VideoSettingCreate, db: AsyncSession = Depe
     db.add(item)
     await db.commit()
     await db.refresh(item)
+
+    try:
+        await _sync_service.sync_for_video_setting(db, item)
+    except Exception:
+        logger.exception("Failed to sync deployments for VideoSetting %s", item.id)
+
     return await _enrich_video_setting(item, db)
 
 
@@ -130,6 +143,12 @@ async def update_video_setting(
 
     await db.commit()
     await db.refresh(item)
+
+    try:
+        await _sync_service.sync_for_video_setting(db, item)
+    except Exception:
+        logger.exception("Failed to sync deployments for VideoSetting %s", item.id)
+
     return await _enrich_video_setting(item, db)
 
 
@@ -143,6 +162,11 @@ async def delete_video_setting(item_id: int, db: AsyncSession = Depends(get_db))
     item = result.scalar_one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail="录像设置不存在")
+
+    try:
+        await _sync_service.delete_for_video_setting(db, item)
+    except Exception:
+        logger.exception("Failed to stop deployments for VideoSetting %s", item.id)
 
     item.deleted_at = datetime.utcnow()
     await db.commit()
@@ -166,4 +190,13 @@ async def toggle_video_setting_status(
     item.status = not item.status
     await db.commit()
     await db.refresh(item)
+
+    try:
+        if item.status:
+            await _sync_service.sync_for_video_setting(db, item)
+        else:
+            await _sync_service.delete_for_video_setting(db, item)
+    except Exception:
+        logger.exception("Failed to sync deployments for VideoSetting %s after toggle", item.id)
+
     return {"status": item.status}
