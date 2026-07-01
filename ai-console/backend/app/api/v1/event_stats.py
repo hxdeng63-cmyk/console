@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
@@ -10,6 +10,11 @@ from app.models.event_type import EventType
 from app.models.algorithm import Algorithm
 
 router = APIRouter(prefix="/event-stats", tags=["事件统计"])
+
+# 业务时区常量：中国大陆业务统一使用 Asia/Shanghai (UTC+8)。
+# 所有"今日/昨日"等按自然日划分的统计必须以此为基准，
+# 避免 UTC 0 点与中国本地 0 点错位 8 小时导致的统计漏报。
+BUSINESS_TZ = timezone(timedelta(hours=8))
 
 
 def _build_base_query(
@@ -57,8 +62,15 @@ def _parse_date(date_str: Optional[str]) -> Optional[datetime]:
 
 
 def _get_today_start() -> datetime:
-    """返回今日开始时间（UTC）。"""
-    return datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    """返回今日开始时间（Asia/Shanghai 0 点的 UTC 等价值）。
+
+    在 +8 时区，本地 00:00 = UTC 16:00（前一日）；若仍用 UTC 0 点作为
+    "今日起点"，本地 00:00-08:00 这 8 小时的事件会被错误归入"昨日"。
+    返回带 tzinfo 的 datetime，与 _build_base_query 中的 datetime 比较保持一致。
+    """
+    local_now = datetime.now(BUSINESS_TZ)
+    local_midnight = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return local_midnight.astimezone(timezone.utc)
 
 
 @router.get("/today")

@@ -122,6 +122,8 @@ async def _run_register_devices_task(task_id: str, device_ids: list) -> None:
                 info = await _resolve_device_stream(device_id, db)
                 if info is None:
                     entry["error"] = "该设备无流地址配置"
+                    entry["flv_url"] = ""
+                    entry["source_type"] = "unavailable"
                     failed += 1
                 else:
                     entry.update({

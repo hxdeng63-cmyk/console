@@ -27,6 +27,7 @@ from app.models.event_type import EventType
 from app.models.video_setting import VideoSetting
 from app.services.operation_log_service import log_sync_failure
 from app.services.stream_url_resolver import resolve_stream_url_for_device
+from app.services.process_monitor import ProcessMonitor
 from app.services.traffic_api_client import (
     TrafficApiAuthError,
     TrafficApiConflictError,

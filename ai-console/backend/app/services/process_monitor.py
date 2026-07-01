@@ -1,28 +1,14 @@
-"""
-ProcessMonitor (legacy 薄壳) — 保留以最小化 main.py / deployment_sync.py 改动。
+"""DeploymentReconciler — traffic-api 化后的 reconcile 工具。
 
-traffic-api 改造后，本类的业务职责已迁出到 `app.services.traffic_api_client`：
-  - 启停推理 → traffic_api_client.start / stop
-  - 推流注册 → traffic_api_client.register_streams / device_flv_url
-  - 推送 callback → traffic-api 子进程 → 用户后端（不再经过本进程）
-  - GPU 调度 → traffic-api 端（MAX_CONCURRENT / MIN_GPU_MEM 等环境变量）
-
-本类仅保留：
-  - 单例骨架（__new__）
-  - TRAFFIC_MODULE_WHITELIST：用于入参校验
-  - reconcile(db)：改为查询 traffic-api /status 同步 algorithm_status 字段
-  - register_status_callback / start_watchdog / stop_watchdog：保留签名以兼容 main.py；
-    内部不再做任何事（traffic-api 主动 report，调用方通过 reconcile 或 polling 感知）
-
-注：traffic-api 改造后无任何调用方再需要 token 生成器（callback_token 由 traffic-api 直接返回）。
-
-未来重命名建议：`DeploymentReconciler`。
+traffic-api 改造后，业务职责（start/stop/callback/watchdog）已迁出到
+`app.services.traffic_api_client`。本类仅保留 reconcile() 用于同步
+algorithm_status；旧名 ProcessMonitor 作为别名以兼容历史 import。
 """
 from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Optional
 
 
 logger = logging.getLogger(__name__)
@@ -47,13 +33,13 @@ TRAFFIC_MODULE_WHITELIST = {
 }
 
 
-class ProcessMonitor:
-    """Legacy process monitor — 薄壳，仅保留 reconcile + 单例骨架。"""
+class DeploymentReconciler:
+    """单例 reconcile 工具：调 traffic-api /status 同步 algorithm_status。"""
 
-    _instance: Optional["ProcessMonitor"] = None
+    _instance: Optional["DeploymentReconciler"] = None
     _lock: asyncio.Lock = asyncio.Lock()
 
-    def __new__(cls) -> "ProcessMonitor":
+    def __new__(cls) -> "DeploymentReconciler":
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._initialized = False
@@ -63,53 +49,6 @@ class ProcessMonitor:
         if getattr(self, "_initialized", False):
             return
         self._initialized = True
-        self._status_callback: Optional[
-            Callable[[int, str, Optional[int], Optional[str]], Awaitable[None]]
-        ] = None
-
-    # ---- 兼容旧调用点 -----------------------------------------
-
-    def register_status_callback(
-        self,
-        callback: Callable[[int, str, Optional[int], Optional[str]], Awaitable[None]],
-    ) -> None:
-        """保留签名以便 main.py 不报错；实际不会触发（traffic-api 不通过 watchdog 回调）。"""
-        self._status_callback = callback
-
-    def start_watchdog(self) -> None:
-        """占位实现：traffic-api 不再需要本地 watchdog。"""
-        logger.info("ProcessMonitor.start_watchdog 是 noop（traffic-api 端负责）")
-
-    async def stop_watchdog(self) -> None:
-        """占位实现。"""
-        return None
-
-    # ---- 业务方法已迁出 ---------------------------------------
-
-    async def start(self, *_args: Any, **_kwargs: Any) -> dict:
-        raise NotImplementedError(
-            "ProcessMonitor.start 已迁出到 app.services.traffic_api_client.start。"
-            "请改用 traffic_api_client.start(deployment_id, payload)。"
-        )
-
-    async def stop(self, *_args: Any, **_kwargs: Any) -> dict:
-        raise NotImplementedError(
-            "ProcessMonitor.stop 已迁出到 app.services.traffic_api_client.stop。"
-        )
-
-    def is_deployment_running(self, deployment_id: int) -> bool:  # pragma: no cover - legacy
-        return False
-
-    def is_process_running(self, deployment_id: int) -> bool:  # pragma: no cover - legacy
-        return False
-
-    def get_pid(self, deployment_id: int) -> Optional[int]:  # pragma: no cover - legacy
-        return None
-
-    def get_exit_code(self, deployment_id: int) -> Optional[int]:  # pragma: no cover - legacy
-        return None
-
-    # ---- reconcile（保留 + 改造为 traffic-api 查询） --------
 
     async def reconcile(self, db: Any) -> None:
         """traffic-api 化 reconcile：调 traffic_api_client.status 同步 algorithm_status。
@@ -196,3 +135,7 @@ class ProcessMonitor:
                     pass
         else:
             logger.info("reconcile: 0 deployments need status sync")
+
+
+# 兼容旧 import（deployments.py / deployment_sync.py 仍在用）
+ProcessMonitor = DeploymentReconciler

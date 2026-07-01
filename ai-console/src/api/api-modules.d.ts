@@ -74,12 +74,6 @@ declare module '@/api/cleanupPolicy' {
   export const updateCleanupPolicy: (data: any) => Promise<any>
 }
 
-declare module '@/api/dashboard' {
-  export const getStats: () => Promise<any>
-  export const getEventStats: () => Promise<any>
-  export const getDeployments: () => Promise<any>
-}
-
 declare module '@/api/data-sources' {
   export const getDataSources: (params?: any) => Promise<any>
   export const getDataSource: (id: any) => Promise<any>

@@ -49,7 +49,7 @@
           />
         </div>
         <video
-          v-show="isNativeVideoVisible && !nativeVideoError"
+          v-if="isNativeVideoVisible && !nativeVideoError"
           ref="nativeVideoRef"
           :src="currentVideoUrl"
           controls
@@ -61,14 +61,14 @@
         />
 
         <div
-          v-show="isNativeVideoVisible && nativeVideoError"
+          v-if="isNativeVideoVisible && nativeVideoError"
           class="video-placeholder"
         >
           <span style="color: #FF006E;">视频文件不存在或暂不可用</span>
         </div>
 
         <div
-          v-show="isFallbackVideoVisible"
+          v-if="isFallbackVideoVisible"
           class="video-wrapper"
           style="width: 100%; height: 100%;"
         >
@@ -239,7 +239,7 @@ import DeviceTree from '@/components/device-tree/DeviceTree.vue'
 import { useStreamPoolStore, type PoolDevice } from '@/stores/streamPool'
 import { getDeviceGroupTree } from '@/api/device-groups'
 import { getList as getWarningEvents } from '@/api/warning-events'
-import { registerDevicesAsync, getRegisterDevicesStatus } from '@/api/stream'
+import { registerDevicesAsync, getRegisterDevicesStatus, getDeviceFlvUrl } from '@/api/stream'
 import { getEventTypeDisplayName } from '@/utils/eventType'
 import type { DeviceNode } from '@/components/device-tree/useDeviceTree'
 import type { ComponentPublicInstance } from 'vue'
@@ -701,9 +701,7 @@ async function getDeviceStreamInfo(deviceId: string): Promise<CachedStreamInfo |
   }
 
   try {
-    const res = await fetch(`/api/v1/stream/device/${deviceId}/flv`)
-    if (!res.ok) return null
-    const data = await res.json()
+    const data = await getDeviceFlvUrl(deviceId)
     const info: CachedStreamInfo = {
       url: data.flv_url,
       type: mapStreamType(data.source_type, data.flv_url),

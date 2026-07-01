@@ -27,37 +27,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-async def _update_deployment_status(
-    deployment_id: int,
-    status: str,
-    pid: int | None,
-    token: str | None = None,
-) -> None:
-    """Callback used by ProcessMonitor to persist deployment status changes.
-
-    `token` is forwarded when the monitor rotated the deployment_token
-    (e.g. on a watchdog restart). When provided, we must persist the new
-    value so subsequent ingest requests with the rotated token succeed.
-    """
-    try:
-        async with AsyncSessionLocal() as db:
-            deployment = await db.get(Deployment, deployment_id)
-            if deployment is None:
-                return
-            deployment.algorithm_status = status
-            deployment.pid = pid
-            if token is not None:
-                deployment.deployment_token = token
-            if status == "running":
-                deployment.started_at = datetime.utcnow()
-                deployment.stopped_at = None
-            elif status in ("stopped", "error", "crashed", "completed"):
-                deployment.stopped_at = datetime.utcnow()
-            await db.commit()
-    except Exception:
-        logger.exception("Failed to update deployment %s status to %s", deployment_id, status)
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: create all database tables
@@ -75,18 +44,11 @@ async def lifespan(app: FastAPI):
         await monitor.reconcile(db)
     logger.info("Deployment process reconciliation completed")
 
-    # Register DB status callback (no-op traffic-api 改造后) and skip watchdog start.
-    # traffic-api 不再依赖本地 watchdog；状态同步由 reconcile 统一处理。
-    monitor.register_status_callback(_update_deployment_status)
-    # monitor.start_watchdog()  # 注释掉：traffic-api 端不依赖本地 watchdog
-
     yield
 
     # Shutdown
     from app.core.scheduler import shutdown_scheduler
     shutdown_scheduler()
-    # stop_watchdog 是 noop，但仍调用以保留兼容（main.py 不爆炸）
-    await monitor.stop_watchdog()
     await engine.dispose()
 
 

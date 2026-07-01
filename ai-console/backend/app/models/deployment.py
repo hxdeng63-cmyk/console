@@ -25,7 +25,7 @@ class Deployment(BaseModel):
     exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     log_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
     module_name: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    deployment_token: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
+    deployment_token: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
     org_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     region_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     device_id: Mapped[int | None] = mapped_column(Integer, nullable=True)

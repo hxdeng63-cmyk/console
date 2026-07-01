@@ -15,6 +15,40 @@ from app.models.event_type import EventType
 router = APIRouter(prefix="/warning-events", tags=["warning-events"])
 
 
+def _resolve_location(
+    event_detail: Optional[str],
+    device_name: Optional[str],
+) -> str:
+    """Resolve human-readable location with a clear fallback chain.
+
+    Priority:
+      1. WarningEvent.location — reserved (no column yet on the model, kept
+         for forward-compat once a dedicated location column is added).
+      2. Device.name / location — acts as the device's human-readable label,
+         since neither WarningEvent nor Device currently expose a `location`
+         column. Device.name is the closest signal we have for "where".
+      3. event_detail — only as a last resort, and only if it looks like
+         prose. JSON blobs are truncated to 50 chars to avoid leaking
+         `{"up_count": 10, ...}` into the UI.
+    """
+    # 1) WarningEvent.location: no such column on the model today; left
+    #    here so the chain is explicit if/when one is added.
+    # 2) Device-level identifier (name used as location proxy).
+    if device_name:
+        return device_name
+
+    # 3) Last-resort: event_detail. If it parses as JSON, truncate it;
+    #    otherwise show it (possibly truncated to 50 chars) as prose.
+    if event_detail:
+        stripped = event_detail.strip()
+        looks_like_json = stripped.startswith("{") or stripped.startswith("[")
+        if looks_like_json:
+            return f"{event_detail[:50]}…" if len(event_detail) > 50 else event_detail
+        return event_detail
+
+    return "未知位置"
+
+
 class WarningEventItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -62,7 +96,11 @@ async def list_warning_events(
     if status:
         query = query.where(WarningEvent.process_status == status)
     if event_type:
-        query = query.where(EventType.name.ilike(f"%{event_type}%"))
+        # Exact match against EventType.name (e.g. "flow", "jam").
+        # Previously used ilike, which caused false positives (e.g. "flow"
+        # also matched "overflow" / "traffic_flow"). Frontend callers send
+        # canonical short codes that map 1:1 to EventType.name values.
+        query = query.where(EventType.name == event_type)
     if keyword:
         query = query.where(
             (Device.name.ilike(f"%{keyword}%"))
@@ -98,7 +136,7 @@ async def list_warning_events(
                 else event.created_at.isoformat()
             ),
             "level": level,
-            "location": event.event_detail or "未知位置",
+            "location": _resolve_location(event.event_detail, device_name),
             "status": event.process_status,
             "imageUrl": ensure_valid_media_url(event.image_url),
             "deviceId": event.device_id,
@@ -148,7 +186,7 @@ async def get_warning_event(item_id: int, db: AsyncSession = Depends(get_db)):
             else event.created_at.isoformat()
         ),
         level=level,
-        location=event.event_detail or "未知位置",
+        location=_resolve_location(event.event_detail, device_name),
         status=event.process_status,
         imageUrl=ensure_valid_media_url(event.image_url),
         deviceId=event.device_id,

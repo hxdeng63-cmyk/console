@@ -42,6 +42,13 @@ _restart_all_lock = asyncio.Lock()
 # How long terminal tasks remain queryable (seconds).
 _COMPLETED_TASK_TTL_SECONDS = 3600
 
+# Polling interval for traffic-api restart-all status (seconds).
+_RESTART_ALL_POLL_INTERVAL_SECONDS = 2.0
+
+# Hard cap on how long we'll poll a single traffic-api task (seconds).
+# Prevents leaked polling loops when traffic-api never reaches a terminal state.
+_RESTART_ALL_POLL_TIMEOUT_SECONDS = 1800
+
 
 def _prune_completed_tasks() -> None:
     """Remove old terminal tasks to keep the in-memory store bounded."""
@@ -115,24 +122,79 @@ async def _execute_restart_all_deployments(
     # traffic-api 返回的 task_id 缓存为子任务，便于前端轮询（前端沿用本地 task_id）。
     sub_task_id = api_result.get("task_id") if isinstance(api_result, dict) else None
 
-    # 本地汇总：traffic-api 返回进度则沿用；否则兜底为 0
-    restarted = int(api_result.get("restarted", 0)) if isinstance(api_result, dict) else 0
-    failed = int(api_result.get("failed", 0)) if isinstance(api_result, dict) else 0
-    skipped = int(api_result.get("skipped", 0)) if isinstance(api_result, dict) else 0
-    errors: list[dict[str, Any]] = list(api_result.get("errors", [])) if isinstance(api_result, dict) else []
+    # traffic-api 同步返回的初始进度（可能为 0，因为真正的工作仍在异步执行）。
+    initial_restarted = int(api_result.get("restarted", 0)) if isinstance(api_result, dict) else 0
+    initial_failed = int(api_result.get("failed", 0)) if isinstance(api_result, dict) else 0
+    initial_skipped = int(api_result.get("skipped", 0)) if isinstance(api_result, dict) else 0
+    initial_errors: list[dict[str, Any]] = (
+        list(api_result.get("errors", [])) if isinstance(api_result, dict) else []
+    )
 
+    # 先发布初始进度 + traffic_api_task_id，task 保持 running。
     await _set_task_state(
         task_id,
-        "completed",
+        "running",
         {
             "total": len(deployment_ids),
-            "restarted": restarted,
-            "failed": failed,
-            "skipped": skipped,
-            "errors": errors,
+            "restarted": initial_restarted,
+            "failed": initial_failed,
+            "skipped": initial_skipped,
+            "errors": initial_errors,
             "traffic_api_task_id": sub_task_id,
         },
     )
+
+    if not sub_task_id:
+        # 兜底：traffic-api 没有返回 task_id，视为同步完成。
+        await _set_task_state(task_id, "completed")
+        return
+
+    # 进入轮询：traffic-api 的 restart-all 是异步任务，需等待其真正完成。
+    client = get_traffic_api_client()
+    deadline = time.monotonic() + _RESTART_ALL_POLL_TIMEOUT_SECONDS
+    while True:
+        await asyncio.sleep(_RESTART_ALL_POLL_INTERVAL_SECONDS)
+        if time.monotonic() > deadline:
+            await _set_task_state(
+                task_id,
+                "failed",
+                {"error": f"traffic-api 任务轮询超时（>{_RESTART_ALL_POLL_TIMEOUT_SECONDS}s）"},
+            )
+            return
+        try:
+            poll = await client.restart_all_status(sub_task_id)
+        except (TrafficApiUnavailableError, TrafficApiAuthError, TrafficApiServerError) as exc:
+            await _set_task_state(
+                task_id,
+                "failed",
+                {"error": f"traffic-api 状态查询失败: {exc}"},
+            )
+            return
+
+        if not isinstance(poll, dict):
+            continue
+        # 透传最新进度
+        progress_extra: dict[str, Any] = {
+            "traffic_api_task_id": sub_task_id,
+            "total": len(deployment_ids),
+            "restarted": int(poll.get("restarted", initial_restarted) or 0),
+            "failed": int(poll.get("failed", initial_failed) or 0),
+            "skipped": int(poll.get("skipped", initial_skipped) or 0),
+            "errors": list(poll.get("errors", initial_errors) or []),
+        }
+        traffic_status = (poll.get("status") or "").lower()
+        if traffic_status in ("completed", "succeeded", "done"):
+            await _set_task_state(task_id, "completed", progress_extra)
+            return
+        if traffic_status in ("failed", "error", "cancelled", "canceled"):
+            await _set_task_state(
+                task_id,
+                "failed",
+                {**progress_extra, "error": poll.get("error") or "traffic-api 任务失败"},
+            )
+            return
+        # 仍进行中：发布最新进度
+        await _set_task_state(task_id, "running", progress_extra)
 
 
 @router.post("/restart-all", response_model=dict)
