@@ -26,7 +26,6 @@ from app.api.v1.video_settings import router as video_settings_router
 from app.api.v1.push_histories import router as push_histories_router
 from app.api.v1.deployments import router as deployments_router
 from app.api.v1.clean_records import router as clean_records_router
-from app.api.v1.dashboard import router as dashboard_router
 from app.api.v1.warning_events import router as warning_events_router
 from app.api.v1.microservices import router as microservices_router
 from app.api.v1.licenses import router as licenses_router
@@ -37,6 +36,7 @@ from app.api.v1.pt_weight_files import router as pt_weight_files_router
 from app.api.v1.upload import router as upload_router
 from app.api.v1.cleanup_policy import router as cleanup_policy_router
 from app.api.v1.stream import router as stream_router
+from app.api.v1.realtime import router as realtime_router
 
 router = APIRouter()
 
@@ -67,7 +67,6 @@ router.include_router(video_settings_router)
 router.include_router(push_histories_router)
 router.include_router(deployments_router)
 router.include_router(clean_records_router)
-router.include_router(dashboard_router)
 router.include_router(warning_events_router)
 router.include_router(microservices_router)
 router.include_router(licenses_router)
@@ -78,5 +77,6 @@ router.include_router(pt_weight_files_router)
 router.include_router(upload_router)
 router.include_router(cleanup_policy_router)
 router.include_router(stream_router)
+router.include_router(realtime_router)
 
 __all__ = ["router"]
