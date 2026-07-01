@@ -13,6 +13,11 @@ export const deploymentApi = {
   getRestartAllStatus: (taskId) => request.get(`/deployments/restart-all/status/${taskId}`),
   start: (id, data) => request.post(`/deployments/${id}/start`, data),
   startStatus: (id, taskId) => request.get(`/deployments/${id}/start/status/${taskId}`),
+  stop: (id) => request.post(`/deployments/${id}/stop`),
+  stopStatus: (id, taskId) => request.get(`/deployments/${id}/stop/status/${taskId}`),
+  status: (id) => request.get(`/deployments/${id}/status`),
+  restart: (id) => request.post(`/deployments/${id}/restart`),
+  restartStatus: (id, taskId) => request.get(`/deployments/${id}/restart/status/${taskId}`),
 
   // Algorithms
   listAlgorithms: (params) => request.get('/algorithms', { params }),

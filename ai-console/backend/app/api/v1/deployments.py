@@ -11,6 +11,7 @@ from sqlalchemy import select, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.async_tasks import async_task_manager
+from app.core.config import settings
 from app.core.database import AsyncSessionLocal, get_db
 from app.models.deployment import Deployment
 from app.models.deployment_device import DeploymentDevice
@@ -22,6 +23,15 @@ from app.schemas.request.deployment import (
 )
 from app.services.process_monitor import ProcessMonitor
 from app.services.stream_url_resolver import resolve_stream_url_for_device
+from app.services.traffic_api_client import (
+    TrafficApiAuthError,
+    TrafficApiConflictError,
+    TrafficApiNotFoundError,
+    TrafficApiResourceError,
+    TrafficApiServerError,
+    TrafficApiUnavailableError,
+    get_traffic_api_client,
+)
 
 router = APIRouter(prefix="/deployments", tags=["deployments"])
 
@@ -77,112 +87,50 @@ async def _execute_restart_all_deployments(
     task_id: str,
     db: AsyncSession,
 ) -> None:
-    """Stop and restart all non-deleted deployments, updating task progress."""
+    """透传到 traffic-api POST /api/v1/deployments/restart-all。
+
+    进度字段 total/restarted/failed/skipped/errors[] 由 traffic-api 直接返回
+    （API_SERVICE(1).md:501-512），本地只负责状态分发与最终汇总。
+    """
     await _set_task_state(task_id, "running")
 
     result = await db.execute(select(Deployment).where(Deployment.deleted_at.is_(None)))
     deployments = result.scalars().all()
-    await _set_task_state(task_id, "running", {"total": len(deployments)})
+    deployment_ids = [d.id for d in deployments if d.algorithm_id and d.module_name]
 
-    monitor = ProcessMonitor()
-    restarted = 0
-    failed = 0
-    skipped = 0
-    errors: list[dict[str, Any]] = []
+    await _set_task_state(task_id, "running", {"total": len(deployment_ids)})
 
-    for deployment in deployments:
-        if not deployment.algorithm_id or not deployment.module_name:
-            skipped += 1
-            continue
-
-        devices = await _get_devices_for_deployment(db, deployment.id)
-        if not devices:
-            skipped += 1
-            continue
-
-        config_json = deployment.config_json or {}
-        stream_map = config_json.get("stream_map") or {}
-        try:
-            stream_id, primary_device = await _resolve_stream_id_and_device(devices, stream_map)
-        except HTTPException as exc:
-            skipped += 1
-            errors.append({"deployment_id": deployment.id, "error": f"stream_id: {exc.detail}"})
-            continue
-
-        try:
-            await monitor.stop(deployment.id)
-        except Exception as exc:
-            logging.warning("Failed to stop deployment %s before restart: %s", deployment.id, exc)
-
-        video_path = config_json.get("video_path")
-        if not video_path or str(video_path).strip().lower() == "auto":
-            video_path = await resolve_stream_url_for_device(db, primary_device.id)
-
-        if not video_path:
-            skipped += 1
-            errors.append({"deployment_id": deployment.id, "error": "no video_path resolved"})
-            continue
-
-        module_config = dict(config_json.get("module_config") or {})
-        log_path = deployment.log_path or str(
-            Path(__file__).resolve().parents[3] / "logs" / f"traffic_{deployment.id}.log"
-        )
-
-        token = ProcessMonitor.generate_token()
-        deployment.deployment_token = token
-        deployment.config_json = {
-            "stream_map": stream_map,
-            "module_config": module_config,
-            "video_path": video_path,
-        }
-
-        try:
-            start_result = await monitor.start(
-                module_name=deployment.module_name,
-                video_path=video_path,
-                deployment_id=deployment.id,
-                stream_id=stream_id,
-                config=module_config,
-                log_path=log_path,
-                deployment_token=token,
-            )
-        except Exception as exc:
-            failed += 1
-            errors.append({"deployment_id": deployment.id, "error": str(exc)})
-            continue
-
-        deployment.pid = start_result["pid"]
-        deployment.log_path = start_result.get("log_path") or log_path
-        deployment.started_at = datetime.utcnow()
-        deployment.stopped_at = None
-        deployment.exit_code = None
-        deployment.algorithm_status = "running"
-        await _fill_org_region_from_devices(deployment, devices)
-        restarted += 1
-
-        # Publish live progress after each deployment.
+    client = get_traffic_api_client()
+    try:
+        # 一次性透传：traffic-api 内部负责逐个 stop+start（间隔避免 GPU 抢占）。
+        api_result = await client.restart_all(deployment_ids=deployment_ids or None)
+    except (TrafficApiUnavailableError, TrafficApiAuthError, TrafficApiServerError) as exc:
         await _set_task_state(
             task_id,
-            "running",
-            {
-                "total": len(deployments),
-                "restarted": restarted,
-                "failed": failed,
-                "skipped": skipped,
-                "errors": list(errors),
-            },
+            "failed",
+            {"error": str(exc), "errors": [{"error": str(exc)}]},
         )
+        return
 
-    await db.commit()
+    # traffic-api 返回的 task_id 缓存为子任务，便于前端轮询（前端沿用本地 task_id）。
+    sub_task_id = api_result.get("task_id") if isinstance(api_result, dict) else None
+
+    # 本地汇总：traffic-api 返回进度则沿用；否则兜底为 0
+    restarted = int(api_result.get("restarted", 0)) if isinstance(api_result, dict) else 0
+    failed = int(api_result.get("failed", 0)) if isinstance(api_result, dict) else 0
+    skipped = int(api_result.get("skipped", 0)) if isinstance(api_result, dict) else 0
+    errors: list[dict[str, Any]] = list(api_result.get("errors", [])) if isinstance(api_result, dict) else []
+
     await _set_task_state(
         task_id,
         "completed",
         {
-            "total": len(deployments),
+            "total": len(deployment_ids),
             "restarted": restarted,
             "failed": failed,
             "skipped": skipped,
-            "errors": list(errors),
+            "errors": errors,
+            "traffic_api_task_id": sub_task_id,
         },
     )
 
@@ -486,7 +434,7 @@ async def _run_deployment_start_task(
     item_id: int,
     data: dict[str, Any],
 ) -> None:
-    """后台执行 deployment 启动并更新任务状态。"""
+    """后台执行 deployment 启动并更新任务状态（traffic-api 化）。"""
     await async_task_manager.update_task(task_id, "running")
 
     try:
@@ -497,10 +445,6 @@ async def _run_deployment_start_task(
             stream_map = data.get("stream_map")
             stream_id, primary_device = await _resolve_stream_id_and_device(devices, stream_map)
             await _fill_org_region_from_devices(deployment, devices)
-
-            monitor = ProcessMonitor()
-            if monitor.is_deployment_running(deployment.id):
-                raise RuntimeError("Deployment is already running")
 
             video_path = data.get("video_path") or ""
             if not video_path or video_path.strip().lower() == "auto":
@@ -518,30 +462,37 @@ async def _run_deployment_start_task(
                 Path(__file__).resolve().parents[3] / "logs" / f"traffic_{deployment.id}.log"
             )
 
-            # Generate and persist the deployment token BEFORE forking so the
-            # ingest endpoint can authenticate events from the very first frame.
-            token = ProcessMonitor.generate_token()
-            deployment.deployment_token = token
             deployment.module_name = data.get("module_name")
             deployment.config_json = {
                 "stream_map": stream_map,
                 "module_config": module_config,
                 "video_path": video_path,
             }
+            # callback_url 默认从 settings 注入（SSRF 防护要求公网；本地开发可空字符串）
+            module_config.setdefault("callback_url", settings.TRAFFIC_API_DEFAULT_CALLBACK_URL)
+            module_config.setdefault("push_interval", 1.0)
+
             await db.commit()
 
-            result = await monitor.start(
-                module_name=data.get("module_name"),
-                video_path=video_path,
-                deployment_id=deployment.id,
-                stream_id=stream_id,
-                config=module_config,
-                log_path=log_path,
-                deployment_token=token,
-            )
+            client = get_traffic_api_client()
+            payload = {
+                "module_name": deployment.module_name,
+                "video_path": video_path,
+                "stream_map": stream_map or {str(primary_device.id): str(primary_device.id)},
+                "config": module_config,
+                "log_path": log_path,
+            }
+            result = await client.start(deployment.id, payload)
 
-            deployment.pid = result["pid"]
-            deployment.log_path = result["log_path"]
+            # callback_token 复用 deployment_token 字段（String(64)；
+            # traffic-api 文档示例 37 字符 "cbk_xxx"，有 27 字符 headroom）。
+            # UPDATE 不冲突 unique 约束。traffic-api /status 返回的 pid 也写入。
+            callback_token = result.get("callback_token") if isinstance(result, dict) else None
+            traffic_task_id = result.get("task_id") if isinstance(result, dict) else None
+            if callback_token:
+                deployment.deployment_token = callback_token
+            deployment.pid = result.get("pid") if isinstance(result, dict) else None
+            deployment.log_path = result.get("log_path") or log_path
             deployment.started_at = datetime.utcnow()
             deployment.stopped_at = None
             deployment.exit_code = None
@@ -558,24 +509,38 @@ async def _run_deployment_start_task(
                     "algorithm_status": deployment.algorithm_status,
                     "pid": deployment.pid,
                     "deployment_token": deployment.deployment_token,
+                    "traffic_api_task_id": traffic_task_id,
                 },
             )
+    except TrafficApiConflictError as exc:
+        logging.warning("Deployment %s start conflict: %s", item_id, exc)
+        await async_task_manager.update_task(task_id, "failed", {"error": str(exc)})
+    except (TrafficApiResourceError, TrafficApiUnavailableError, TrafficApiServerError) as exc:
+        logging.exception("Deployment start task %s failed (traffic-api)", task_id)
+        await _mark_deployment_error(item_id, str(exc))
+        await async_task_manager.update_task(task_id, "failed", {"error": str(exc)})
+    except TrafficApiAuthError as exc:
+        logging.exception("Deployment start task %s auth failed", task_id)
+        await _mark_deployment_error(item_id, str(exc))
+        await async_task_manager.update_task(task_id, "failed", {"error": str(exc)})
     except Exception as exc:
         logging.exception("Deployment start task %s failed", task_id)
+        await _mark_deployment_error(item_id, str(exc))
+        await async_task_manager.update_task(task_id, "failed", {"error": str(exc)})
+
+
+async def _mark_deployment_error(item_id: int, reason: str) -> None:
+    """把 deployment 标记为 error 状态（不抛异常）。"""
+    try:
         async with AsyncSessionLocal() as db:
             deployment = await db.get(Deployment, item_id)
-            if deployment is not None:
-                deployment.algorithm_status = "error"
-                deployment.stopped_at = datetime.utcnow()
-                try:
-                    await db.commit()
-                except Exception:
-                    logging.exception("Failed to mark deployment %s as error", item_id)
-        await async_task_manager.update_task(
-            task_id,
-            "failed",
-            {"error": str(exc)},
-        )
+            if deployment is None:
+                return
+            deployment.algorithm_status = "error"
+            deployment.stopped_at = datetime.utcnow()
+            await db.commit()
+    except Exception:
+        logging.exception("Failed to mark deployment %s as error: %s", item_id, reason)
 
 
 @router.post("/{item_id}/stop", response_model=dict)
@@ -604,19 +569,25 @@ async def get_stop_deployment_status(task_id: str):
 
 
 async def _run_deployment_stop_task(task_id: str, item_id: int) -> None:
-    """后台执行 deployment 停止并更新任务状态。"""
+    """后台执行 deployment 停止并更新任务状态（traffic-api 化）。"""
     await async_task_manager.update_task(task_id, "running")
 
     try:
         async with AsyncSessionLocal() as db:
             deployment = await _get_deployment_or_404(db, item_id)
-            monitor = ProcessMonitor()
-            stop_result = await monitor.stop(deployment.id)
+            client = get_traffic_api_client()
+            try:
+                stop_result = await client.stop(deployment.id)
+            except TrafficApiNotFoundError:
+                # traffic-api 重启后任务记录丢失（traffic-api 无持久化）：
+                # 视为已停止，不当作错误。
+                stop_result = {"exit_code": 0, "not_found": True}
 
+            exit_code = stop_result.get("exit_code") if isinstance(stop_result, dict) else None
             deployment.stopped_at = datetime.utcnow()
-            deployment.exit_code = stop_result.get("exit_code")
+            deployment.exit_code = exit_code
             deployment.pid = None
-            deployment.algorithm_status = "stopped" if stop_result.get("exit_code") == 0 else "crashed"
+            deployment.algorithm_status = "stopped" if exit_code in (0, None) else "crashed"
 
             await db.commit()
             await db.refresh(deployment)
@@ -630,6 +601,13 @@ async def _run_deployment_stop_task(task_id: str, item_id: int) -> None:
                     "exit_code": deployment.exit_code,
                 },
             )
+    except (TrafficApiUnavailableError, TrafficApiServerError, TrafficApiAuthError) as exc:
+        logging.exception("Deployment stop task %s failed (traffic-api)", task_id)
+        await async_task_manager.update_task(
+            task_id,
+            "failed",
+            {"error": str(exc)},
+        )
     except Exception as exc:
         logging.exception("Deployment stop task %s failed", task_id)
         await async_task_manager.update_task(
@@ -642,16 +620,35 @@ async def _run_deployment_stop_task(task_id: str, item_id: int) -> None:
 
 @router.get("/{item_id}/status", response_model=dict)
 async def deployment_status(item_id: int, db: AsyncSession = Depends(get_db)):
+    """透传 traffic-api /status：pid 来自 traffic-api，is_running 来自 status 枚举。"""
     deployment = await _get_deployment_or_404(db, item_id)
-    monitor = ProcessMonitor()
+    client = get_traffic_api_client()
 
-    is_running = monitor.is_deployment_running(deployment.id)
-    if not is_running and deployment.algorithm_status == "running":
-        exit_code = monitor.get_exit_code(deployment.id)
-        deployment.stopped_at = datetime.utcnow()
-        deployment.exit_code = exit_code
+    traffic_status: dict[str, Any] | None = None
+    try:
+        traffic_status = await client.status(deployment.id)
+    except TrafficApiNotFoundError:
+        traffic_status = None
+
+    is_running = False
+    live_pid: int | None = None
+    if traffic_status is not None:
+        status_str = (traffic_status.get("status") or "").lower()
+        is_running = status_str in {"pending", "running", "stopping"}
+        live_pid = traffic_status.get("pid")
+        # 状态同步：traffic-api 是真值源
+        new_alg_status = _map_traffic_status(status_str, fallback=deployment.algorithm_status)
+        if new_alg_status != deployment.algorithm_status:
+            deployment.algorithm_status = new_alg_status
+            if new_alg_status in {"stopped", "crashed", "completed", "unknown"}:
+                deployment.stopped_at = datetime.utcnow()
+                deployment.pid = None
+            await db.commit()
+            await db.refresh(deployment)
+    elif deployment.algorithm_status == "running":
+        # traffic-api 404：traffic-api 重启后任务记录丢失 → 标记 unknown
+        deployment.algorithm_status = "unknown"
         deployment.pid = None
-        deployment.algorithm_status = "stopped" if exit_code == 0 else "crashed"
         await db.commit()
         await db.refresh(deployment)
 
@@ -661,5 +658,20 @@ async def deployment_status(item_id: int, db: AsyncSession = Depends(get_db)):
             _build_response(deployment, device_map.get(deployment.id, []))
         ),
         "is_running": is_running,
-        "pid": monitor.get_pid(deployment.id),
+        "pid": live_pid if live_pid is not None else deployment.pid,
     }
+
+
+def _map_traffic_status(traffic_status: str, *, fallback: str) -> str:
+    """traffic-api status → Deployment.algorithm_status。"""
+    if traffic_status == "running":
+        return "running"
+    if traffic_status in {"pending", "stopping"}:
+        return "pending"
+    if traffic_status == "stopped":
+        return "stopped"
+    if traffic_status == "crashed":
+        return "crashed"
+    if traffic_status == "completed":
+        return "completed"
+    return fallback

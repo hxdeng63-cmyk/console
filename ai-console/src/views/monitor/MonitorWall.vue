@@ -212,14 +212,26 @@
         <div
           v-for="event in filteredEvents"
           :key="event.id"
-          class="event-card"
+          class="event-card clickable"
+          @click="handleAlarmClick(event)"
         >
           <div class="event-thumb">
             <img :src="event.imageUrl" :alt="event.type" @error="handleImageError" />
             <div class="event-no-image" :style="{ display: event.imageUrl ? 'none' : 'flex' }">无图片</div>
+            <div class="event-time">{{ event.time }}</div>
           </div>
-          <div class="event-label">
-            <span class="event-type">{{ event.type }}</span>
+          <div class="event-info">
+            <div class="event-location">{{ event.deviceName || event.device }}<template v-if="event.location"> · {{ event.location }}</template></div>
+            <div class="event-tags">
+              <span
+                class="event-status"
+                :class="event.isCompliant === true ? 'compliant' : event.isCompliant === false ? 'non-compliant' : 'unknown'"
+              >
+                {{ event.isCompliant === true ? '合规' : event.isCompliant === false ? '不合规' : '未知' }}
+              </span>
+              <span class="event-process-status">{{ statusText(event.processStatus) }}</span>
+            </div>
+            <div class="event-type">{{ event.type }}</div>
           </div>
         </div>
       </div>
@@ -242,6 +254,85 @@
         <el-radio-button value="danger">不合规</el-radio-button>
       </el-radio-group>
     </div>
+
+    <!-- 报警详情弹窗 -->
+    <el-dialog
+      v-model="detailDialogVisible"
+      title="报警动态详情"
+      width="800px"
+      :close-on-click-modal="false"
+      class="alarm-detail-dialog"
+    >
+      <div class="detail-container">
+        <div class="detail-image">
+          <img
+            v-if="selectedAlarm?.imageUrl"
+            :src="selectedAlarm.imageUrl"
+            alt="事件图片"
+            @error="handleImageError"
+          />
+          <div v-else class="detail-no-image">无图片</div>
+        </div>
+        <div class="detail-info">
+          <div class="detail-row">
+            <span class="detail-label">事件名称：</span>
+            <span class="detail-value">{{ selectedAlarm?.type || '-' }}</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">事件类型：</span>
+            <span class="detail-value">{{ selectedAlarm?.eventDetail || selectedAlarm?.type || '-' }}</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">报警位置：</span>
+            <span class="detail-value">{{ selectedAlarm?.location || '-' }}</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">处理状态：</span>
+            <el-tag :type="statusTagType(selectedAlarm?.processStatus)" size="small">
+              {{ statusText(selectedAlarm?.processStatus || '') }}
+            </el-tag>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">合规状态：</span>
+            <span
+              class="detail-value"
+              :class="selectedAlarm?.isCompliant === true ? 'text-success' : selectedAlarm?.isCompliant === false ? 'text-danger' : 'text-secondary'"
+            >
+              {{ selectedAlarm?.isCompliant === true ? '合规' : selectedAlarm?.isCompliant === false ? '不合规' : '未知' }}
+            </span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">报警时间：</span>
+            <span class="detail-value">{{ selectedAlarm?.time || '-' }}</span>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="detailDialogVisible = false">关闭</el-button>
+        <el-button type="primary" @click="handleVideoPlayback">视频回放</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 视频回放弹窗 -->
+    <el-dialog
+      v-model="videoDialogVisible"
+      title="视频回放"
+      width="800px"
+      :close-on-click-modal="false"
+      class="video-playback-dialog"
+    >
+      <div class="video-playback-container">
+        <video
+          v-if="selectedAlarm?.videoUrl && !alarmVideoError"
+          :src="selectedAlarm.videoUrl"
+          controls
+          autoplay
+          style="width: 100%; max-height: 500px;"
+          @error="handleAlarmVideoError"
+        />
+        <div v-else class="video-playback-empty">暂无视频</div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -262,6 +353,49 @@ import type { DeviceNode } from '@/components/device-tree/useDeviceTree'
 const selectedChannel = ref('')
 const selectedAlgorithm = ref('')
 const eventFilter = ref('all')
+
+const detailDialogVisible = ref(false)
+const videoDialogVisible = ref(false)
+const selectedAlarm = ref<any>(null)
+const alarmVideoError = ref(false)
+
+function handleAlarmClick(alarm: any) {
+  selectedAlarm.value = alarm
+  alarmVideoError.value = false
+  detailDialogVisible.value = true
+}
+
+function handleVideoPlayback() {
+  if (!selectedAlarm.value?.videoUrl) {
+    ElMessage.warning('该事件暂无可回放视频')
+    return
+  }
+  videoDialogVisible.value = true
+}
+
+function handleAlarmVideoError() {
+  alarmVideoError.value = true
+}
+
+function statusText(status: string) {
+  const map: Record<string, string> = {
+    pending: '待处理',
+    processing: '处理中',
+    resolved: '已解决',
+    ignored: '已忽略',
+  }
+  return map[status] || status
+}
+
+function statusTagType(status: string): string {
+  const map: Record<string, string> = {
+    pending: 'warning',
+    processing: 'primary',
+    resolved: 'success',
+    ignored: 'info',
+  }
+  return map[status] || ''
+}
 
 interface StreamInfo {
   url: string
@@ -388,9 +522,28 @@ const handleAlgorithmChange = async (value: string) => {
     let deploymentId: number
     if (item) {
       deploymentId = item.id
-      if (item.algorithm_status === 'running') {
-        ElMessage.info('该算法已在运行')
-        return
+      // stop-before-start 守卫：traffic-api 改造后必须先 stop 旧任务，否则 traffic-api 会 409。
+      if (['running', 'pending', 'stopping'].includes(item.algorithm_status)) {
+        try {
+          const stopRes: any = await deploymentApi.stop(deploymentId)
+          if (stopRes?.task_id) {
+            await new Promise<void>((resolve, reject) => {
+              let attempts = 0
+              const timer = window.setInterval(async () => {
+                attempts += 1
+                try {
+                  const s: any = await deploymentApi.stopStatus(deploymentId, stopRes.task_id)
+                  if (s.status === 'completed') { window.clearInterval(timer); resolve() }
+                  else if (s.status === 'failed') { window.clearInterval(timer); reject(new Error(s.error || 'stop failed')) }
+                } catch {/* 继续轮询 */}
+                if (attempts >= 30) { window.clearInterval(timer); reject(new Error('stop 超时')) }
+              }, 1000)
+            })
+          }
+        } catch (stopErr: any) {
+          // 旧任务可能已在 traffic-api 端不可见（重启后丢失），继续 start
+          console.warn('stop 旧任务失败，继续 start:', stopErr)
+        }
       }
     } else {
       const created: any = await deploymentApi.create({
@@ -407,6 +560,11 @@ const handleAlgorithmChange = async (value: string) => {
     const startRes: any = await deploymentApi.start(deploymentId, {
       module_name: moduleName,
       video_path: 'auto',
+      stream_map: { [String(rawId)]: String(rawId) },  // S2 强约束：stream_id == str(device_id)
+      config: {
+        callback_url: (import.meta.env.VITE_TRAFFIC_CALLBACK_URL as string) || '',
+        push_interval: 1.0,
+      },
     })
     pollStartStatus(deploymentId, startRes.task_id, moduleName)
     ElMessage.success('识别任务已启动')
@@ -623,12 +781,16 @@ const fetchAlarms = async (rawId?: number) => {
       id: item.id,
       time: item.time || item.captureTime?.split(' ')[1] || '00:00:00',
       type: getEventTypeDisplayName(item.eventType || item.eventTypeName) || '未知',
-      device: item.device || '',
+      device: item.device || item.cameraName || '',
+      deviceName: item.cameraName || item.device || '',
       location: item.location || '',
+      eventDetail: item.eventDetail || '',
       level: item.level || 'info',
       handled: item.handled ?? false,
+      processStatus: item.status || 'pending',
       isCompliant: item.isCompliant ?? true,
       imageUrl: item.imageUrl || '',
+      videoUrl: item.videoUrl || '',
       captureTime: item.captureTime || '',
     }))
   } catch {
@@ -1538,5 +1700,183 @@ const filteredEvents = computed(() => {
 
 .info-value.quality-ok {
   color: #00FF88;
+}
+
+/* 底部事件抓拍 - 卡片可交互 */
+.event-card.clickable {
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.event-card.clickable:hover {
+  border-color: #00E5FF;
+  box-shadow: 0 0 6px rgba(0, 229, 255, 0.35);
+}
+
+.event-time {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  padding: 1px 6px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #00E5FF;
+  font-size: 10px;
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.event-info {
+  padding: 6px 8px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.event-location {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.7);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.event-tags {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.event-status {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+
+.event-status.compliant {
+  background: rgba(82, 196, 26, 0.2);
+  color: #52C41A;
+}
+
+.event-status.non-compliant {
+  background: rgba(255, 0, 110, 0.2);
+  color: #FF006E;
+}
+
+.event-status.unknown {
+  background: rgba(120, 130, 150, 0.2);
+  color: rgba(180, 210, 235, 0.7);
+}
+
+.event-process-status {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 2px;
+  background: rgba(0, 153, 255, 0.2);
+  color: #0099FF;
+  white-space: nowrap;
+}
+
+.event-type {
+  font-size: 11px;
+  color: rgba(180, 210, 235, 0.85);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 报警详情弹窗 */
+.alarm-detail-dialog :deep(.el-dialog__body) {
+  background: #020B1F;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.detail-container {
+  display: flex;
+  gap: 16px;
+}
+
+.detail-image {
+  flex: 1;
+  min-width: 0;
+  background: rgba(0, 20, 50, 0.6);
+  border: 1px solid rgba(0, 229, 255, 0.2);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 320px;
+  overflow: hidden;
+}
+
+.detail-image img {
+  width: 100%;
+  max-height: 400px;
+  object-fit: contain;
+}
+
+.detail-no-image {
+  color: rgba(180, 210, 235, 0.6);
+  font-size: 13px;
+}
+
+.detail-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.detail-row {
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.detail-label {
+  flex-shrink: 0;
+  width: 88px;
+  color: rgba(180, 210, 235, 0.6);
+}
+
+.detail-value {
+  color: rgba(255, 255, 255, 0.9);
+  word-break: break-all;
+}
+
+.detail-value.text-success {
+  color: #52C41A;
+}
+
+.detail-value.text-danger {
+  color: #FF006E;
+}
+
+.detail-value.text-secondary {
+  color: rgba(180, 210, 235, 0.7);
+}
+
+/* 视频回放弹窗 */
+.video-playback-dialog :deep(.el-dialog__body) {
+  background: #020B1F;
+}
+
+.video-playback-container {
+  width: 100%;
+  min-height: 320px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 20, 50, 0.6);
+  border: 1px solid rgba(0, 229, 255, 0.2);
+  border-radius: 4px;
+}
+
+.video-playback-empty {
+  color: rgba(180, 210, 235, 0.6);
+  font-size: 13px;
+  padding: 60px 0;
 }
 </style>

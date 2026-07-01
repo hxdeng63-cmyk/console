@@ -75,16 +75,17 @@ async def lifespan(app: FastAPI):
         await monitor.reconcile(db)
     logger.info("Deployment process reconciliation completed")
 
-    # Register DB status callback and start the watchdog loop.
+    # Register DB status callback (no-op traffic-api 改造后) and skip watchdog start.
+    # traffic-api 不再依赖本地 watchdog；状态同步由 reconcile 统一处理。
     monitor.register_status_callback(_update_deployment_status)
-    monitor.start_watchdog()
-    logger.info("ProcessMonitor watchdog started")
+    # monitor.start_watchdog()  # 注释掉：traffic-api 端不依赖本地 watchdog
 
     yield
 
     # Shutdown
     from app.core.scheduler import shutdown_scheduler
     shutdown_scheduler()
+    # stop_watchdog 是 noop，但仍调用以保留兼容（main.py 不爆炸）
     await monitor.stop_watchdog()
     await engine.dispose()
 

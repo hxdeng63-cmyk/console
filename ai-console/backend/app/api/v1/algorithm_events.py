@@ -10,6 +10,7 @@ from sqlalchemy import select, func, false
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.media import (
     DOCS_ROOT as _DOCS_ROOT,
@@ -298,6 +299,7 @@ def _parse_report_time(raw: Any) -> Optional[datetime]:
 
 
 async def _get_deployment_by_token(db: AsyncSession, token: str) -> Deployment:
+    """保留签名以便兼容旧调用点；实际鉴权已改为 TRAFFIC_API_AUTH_TOKEN（见 ingest_algorithm_event）。"""
     result = await db.execute(
         select(Deployment).where(
             Deployment.deployment_token == token,
@@ -311,6 +313,55 @@ async def _get_deployment_by_token(db: AsyncSession, token: str) -> Deployment:
             detail="Invalid deployment token",
         )
     return deployment
+
+
+async def _find_active_deployment_for_device(db: AsyncSession, device_id: int) -> Optional[Deployment]:
+    """根据 device_id 反查 active deployment（algorithm_status in {running, pending, stopping, completed}）。"""
+    result = await db.execute(
+        select(Deployment)
+        .join(DeploymentDevice, DeploymentDevice.deployment_id == Deployment.id)
+        .where(
+            DeploymentDevice.device_id == device_id,
+            Deployment.deleted_at.is_(None),
+            Deployment.algorithm_status.in_(("running", "pending", "stopping", "completed")),
+        )
+        .order_by(Deployment.id.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+class _EmptyDeploymentContext:
+    """无 active deployment 时的占位上下文（不写 org/region/algorithm 字段）。"""
+    id = None
+    org_id = None
+    region_id = None
+    algorithm_id = None
+    algorithm_status = "unknown"
+
+
+def _empty_deployment_context() -> _EmptyDeploymentContext:
+    return _EmptyDeploymentContext()
+
+
+def _verify_traffic_api_token(authorization: Optional[str]) -> None:
+    """鉴权 traffic-api 推送：与 settings.TRAFFIC_API_AUTH_TOKEN 比对。
+
+    注意：本端点不再校验 deployment.deployment_token。
+    部署级 callback_token 由 traffic-api 子进程 → 用户后端使用，本端点不感知。
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid Authorization header",
+        )
+    token = authorization[len("Bearer "):].strip()
+    expected = settings.TRAFFIC_API_AUTH_TOKEN
+    if not expected or token != expected:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid traffic-api token",
+        )
 
 
 async def _resolve_device_id(
@@ -410,24 +461,13 @@ async def ingest_algorithm_event(
     db: AsyncSession = Depends(get_db),
     authorization: Optional[str] = Header(None),
 ):
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing or invalid Authorization header",
-        )
+    """traffic-api 子进程 / 用户后端推送的事件入库。
 
-    token = authorization[len("Bearer "):].strip()
-    deployment = await _get_deployment_by_token(db, token)
-
-    # Accept both "running" and "completed" so in-flight pushes from a process
-    # that already exited cleanly (exit_code=0) don't get rejected with 403.
-    # "completed" is the new watchdog-marker for normal completion; it must
-    # still accept events for the brief window before reconcile() picks it up.
-    if deployment.algorithm_status not in ("running", "completed"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Deployment is not running",
-        )
+    鉴权：Authorization: Bearer <TRAFFIC_API_AUTH_TOKEN>。
+    不再校验 deployment_token（traffic-api / 用户后端用设备面 token 推）。
+    device_id 由 stream_id（==str(device_id)）解析，强约束（API_SERVICE(1).md L130-133）。
+    """
+    _verify_traffic_api_token(authorization)
 
     stream_id = payload.get("stream_id")
     if not stream_id:
@@ -436,7 +476,21 @@ async def ingest_algorithm_event(
             detail="stream_id is required",
         )
 
-    device_id = await _resolve_device_id(db, deployment, stream_id)
+    # stream_id == str(device_id) 强约束：直接转 int 作为 device_id。
+    try:
+        device_id = int(stream_id)
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="stream_id must equal str(device_id)",
+        )
+
+    # 找该 device 上的 active deployment（用于继承 org_id/region_id/algorithm_id）。
+    deployment = await _find_active_deployment_for_device(db, device_id)
+    if deployment is None:
+        # traffic-api 推送时 deployment 状态为 'running' 即可接受；
+        # 找不到 active deployment 时仍允许入库（用户后端可能同步历史事件）。
+        deployment = _empty_deployment_context()
     event_type_map = await _load_traffic_event_types(db)
     allowed_event_type_ids = await _get_allowed_event_type_ids(db, device_id)
     report_time = _parse_report_time(payload.get("timestamp"))

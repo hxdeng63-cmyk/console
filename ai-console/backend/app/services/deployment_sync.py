@@ -18,14 +18,24 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models.algorithm import Algorithm
 from app.models.deployment import Deployment
 from app.models.deployment_device import DeploymentDevice
 from app.models.device import Device
 from app.models.event_type import EventType
 from app.models.video_setting import VideoSetting
-from app.services.process_monitor import ProcessMonitor
+from app.services.operation_log_service import log_sync_failure
 from app.services.stream_url_resolver import resolve_stream_url_for_device
+from app.services.traffic_api_client import (
+    TrafficApiAuthError,
+    TrafficApiConflictError,
+    TrafficApiNotFoundError,
+    TrafficApiResourceError,
+    TrafficApiServerError,
+    TrafficApiUnavailableError,
+    get_traffic_api_client,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +44,9 @@ class DeploymentSyncService:
     """Sync Deployment records with VideoSetting event types."""
 
     def __init__(self) -> None:
+        # ProcessMonitor 单例仍保留（reconcile 框架仍用），但 start/stop 改走 traffic_api_client
         self._monitor = ProcessMonitor()
+        self._traffic_api = get_traffic_api_client()
 
     async def sync_for_video_setting(
         self,
@@ -269,37 +281,65 @@ class DeploymentSyncService:
         deployment: Deployment,
         stream_url: str,
     ) -> None:
-        token = self._monitor.generate_token()
-        deployment.deployment_token = token
-        await db.commit()
+        """traffic-api 化：通过 traffic_api_client.start 启动；token 由 traffic-api 回调返回。"""
+        config_json = dict(deployment.config_json or {})
+        stream_map = config_json.get("stream_map") or {}
+        primary_stream_id = (
+            stream_map.get(str(deployment.device_id)) or str(deployment.device_id)
+        )
+        module_config = dict(config_json.get("module_config") or {})
+        module_config.setdefault("callback_url", settings.TRAFFIC_API_DEFAULT_CALLBACK_URL)
+        module_config.setdefault("push_interval", 1.0)
+
+        payload = {
+            "module_name": deployment.module_name,
+            "video_path": stream_url,
+            "stream_map": stream_map or {str(deployment.device_id): primary_stream_id},
+            "config": module_config,
+            "log_path": f"logs/traffic_{deployment.id}.log",
+        }
 
         try:
-            result = await self._monitor.start(
-                module_name=deployment.module_name,
-                video_path=stream_url,
-                deployment_id=deployment.id,
-                stream_id=deployment.config_json.get("stream_map", {}).get(
-                    str(deployment.device_id)
-                )
-                if deployment.config_json
-                else str(deployment.device_id),
-                config=deployment.config_json.get("module_config") if deployment.config_json else {},
-                log_path=f"logs/traffic_{deployment.id}.log",
-                deployment_token=token,
-            )
-        except Exception as exc:
+            result = await self._traffic_api.start(deployment.id, payload)
+        except (TrafficApiResourceError, TrafficApiUnavailableError, TrafficApiServerError) as exc:
             logger.exception(
                 "Failed to start module %s for deployment %s: %s",
-                deployment.module_name,
-                deployment.id,
-                exc,
+                deployment.module_name, deployment.id, exc,
+            )
+            await log_sync_failure(
+                description=f"start_deployment_{deployment.id}",
+                error=str(exc),
+                status_code=exc.status_code,
+            )
+            deployment.algorithm_status = "error"
+            deployment.stopped_at = datetime.utcnow()
+            await db.commit()
+            return
+        except TrafficApiConflictError as exc:
+            # 已有活跃任务：直接置为 running 等待前端 reconcile，不当作硬错误
+            logger.info("Deployment %s start conflict: %s", deployment.id, exc)
+            deployment.algorithm_status = "running"
+            deployment.started_at = datetime.utcnow()
+            await db.commit()
+            return
+        except TrafficApiAuthError as exc:
+            logger.exception("traffic-api auth failed for deployment %s", deployment.id)
+            await log_sync_failure(
+                description=f"start_deployment_{deployment.id}",
+                error=str(exc),
+                status_code=exc.status_code,
             )
             deployment.algorithm_status = "error"
             deployment.stopped_at = datetime.utcnow()
             await db.commit()
             return
 
-        deployment.pid = result["pid"]
+        if not isinstance(result, dict):
+            result = {}
+        callback_token = result.get("callback_token")
+        if callback_token:
+            deployment.deployment_token = callback_token
+        deployment.pid = result.get("pid")
         deployment.algorithm_status = "running"
         deployment.started_at = datetime.utcnow()
         deployment.stopped_at = None
@@ -307,9 +347,7 @@ class DeploymentSyncService:
         await db.commit()
         logger.info(
             "Started module %s for deployment %s (pid=%s)",
-            deployment.module_name,
-            deployment.id,
-            result["pid"],
+            deployment.module_name, deployment.id, deployment.pid,
         )
 
     async def _restart_deployment_process(
@@ -318,16 +356,17 @@ class DeploymentSyncService:
         deployment: Deployment,
         stream_url: str,
     ) -> None:
-        """Stop a non-running deployment's tracked process and start a fresh one."""
-        # Best-effort stop: ignore errors if no tracked process exists.
+        """traffic-api 化：先 stop 再 start（traffic-api /restart 异步轮询，此处走同步 stop+start）。"""
         try:
-            await self._monitor.stop(deployment.id)
-        except Exception:
-            logger.exception(
-                "Error stopping prior process for deployment %s before restart", deployment.id
+            await self._traffic_api.stop(deployment.id)
+        except TrafficApiNotFoundError:
+            # traffic-api 重启后任务记录丢失，视为已停
+            pass
+        except Exception as exc:
+            logger.warning(
+                "Error stopping prior deployment %s before restart: %s", deployment.id, exc
             )
 
-        # Refresh config_json in case stream_url changed.
         config_json = dict(deployment.config_json or {})
         config_json["video_path"] = stream_url
         deployment.config_json = config_json
@@ -335,12 +374,20 @@ class DeploymentSyncService:
         await self._start_deployment_process(db, deployment, stream_url)
 
     async def _is_deployment_healthy(self, deployment: Deployment) -> bool:
-        """Return True if deployment is in a running state with an alive process."""
-        if deployment.algorithm_status != "running":
+        """traffic-api 化：status in {pending, running, stopping} 即认为健康。"""
+        if deployment.algorithm_status not in ("pending", "running", "stopping"):
             return False
-        if not self._monitor.is_process_running(deployment.id):
+        # 二次确认：traffic-api /status 返回实时状态
+        try:
+            traffic_status = await self._traffic_api.status(deployment.id)
+        except Exception:
+            # traffic-api 暂时不可用 → 用本地 algorithm_status 兜底
+            return deployment.algorithm_status == "running"
+        if traffic_status is None:
+            # traffic-api 404（重启后任务记录丢失）→ 不当作 healthy，避免被 cleanup 误删
             return False
-        return True
+        s = (traffic_status.get("status") or "").lower()
+        return s in ("pending", "running", "stopping")
 
     async def _stop_and_delete_deployment(
         self,
@@ -348,9 +395,15 @@ class DeploymentSyncService:
         deployment: Deployment,
     ) -> None:
         try:
-            await self._monitor.stop(deployment.id)
-        except Exception:
-            logger.exception("Error stopping deployment %s", deployment.id)
+            await self._traffic_api.stop(deployment.id)
+        except TrafficApiNotFoundError:
+            pass
+        except Exception as exc:
+            await log_sync_failure(
+                description=f"stop_deployment_{deployment.id}",
+                error=str(exc),
+            )
+            logger.exception("Error stopping deployment %s: %s", deployment.id, exc)
 
         deployment.algorithm_status = "stopped"
         deployment.pid = None

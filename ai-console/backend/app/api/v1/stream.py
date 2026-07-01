@@ -1,6 +1,8 @@
-import httpx
-from fastapi import APIRouter, Depends, HTTPException
+"""流代理：traffic-api 主路径 + 本地文件/HTTP 兜底。"""
+import logging
 from pathlib import Path
+
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -8,16 +10,14 @@ from app.core.async_tasks import async_task_manager
 from app.core.database import AsyncSessionLocal, get_db
 from app.models.data_source import DataSource
 from app.services.stream_url_resolver import resolve_stream_url_for_device
+from app.services.traffic_api_client import (
+    TrafficApiNotFoundError,
+    get_traffic_api_client,
+)
 
 router = APIRouter(prefix="/stream", tags=["stream"])
 
-MEDIAMTX_API = "http://127.0.0.1:9997"
-MEDIAMTX_HLS_BASE = "http://127.0.0.1:10060"
-
 _PROJECT_ROOT = Path(__file__).resolve().parents[5]
-
-# Default timeout for MediaMTX registration calls (seconds).
-_MEDIAMTX_TIMEOUT = 10.0
 
 
 async def _find_stream_url(device_id: int, db: AsyncSession) -> tuple[str | None, str | None]:
@@ -52,7 +52,7 @@ async def _find_stream_url(device_id: int, db: AsyncSession) -> tuple[str | None
 
 @router.get("/device/{device_id}/flv")
 async def get_device_flv_url(device_id: int, db: AsyncSession = Depends(get_db)):
-    """根据设备 ID 获取播放地址"""
+    """根据设备 ID 获取播放地址：先 traffic-api，回退到本地文件 / HTTP 直连。"""
     result = await _resolve_device_stream(device_id, db)
     if result is None:
         raise HTTPException(status_code=404, detail="该设备无流地址配置")
@@ -64,7 +64,8 @@ async def register_devices(
     request: dict,
     db: AsyncSession = Depends(get_db),
 ):
-    """批量注册设备流路径，立即返回 task_id，由后台任务完成解析与 MediaMTX 注册。"""
+    """批量注册设备流路径：转发到 traffic-api（traffic-api 内部建 HLS）。
+    立即返回 task_id，由后台任务汇总 progress。"""
     device_ids = request.get("device_ids", [])
     if not device_ids:
         raise HTTPException(status_code=400, detail="device_ids 不能为空")
@@ -87,8 +88,11 @@ async def get_register_devices_status(task_id: str):
 
 
 async def _run_register_devices_task(task_id: str, device_ids: list) -> None:
-    """后台执行批量流注册，并实时更新任务状态。"""
+    """后台执行批量流注册：转发 traffic-api register_streams，逐设备用 _resolve_device_stream 兜底。"""
     await async_task_manager.update_task(task_id, "running")
+
+    client = get_traffic_api_client()
+    devices_payload = [{"device_id": int(d)} for d in device_ids if str(d).isdigit()]
 
     async with AsyncSessionLocal() as db:
         results: list[dict] = []
@@ -137,6 +141,15 @@ async def _run_register_devices_task(task_id: str, device_ids: list) -> None:
             results.append(entry)
             await _publish_stream_progress(task_id, device_ids, done, failed, results)
 
+        # 转发到 traffic-api：traffic-api 端在收到 list 后会自行注册 RTSP→HLS。
+        # 我们本地不等待 traffic-api 返回（注册是幂等的，前端拿到 flv_url 即可播放）。
+        if devices_payload:
+            try:
+                await client.register_streams(devices_payload)
+            except Exception:
+                # traffic-api 暂时不可用时，本地兜底返回的 flv_url 仍可工作；不抛给前端。
+                logging.warning("traffic-api register_streams 调用失败，继续走本地兜底")
+
         await async_task_manager.update_task(
             task_id,
             "completed",
@@ -169,19 +182,40 @@ async def _publish_stream_progress(
 
 
 async def _resolve_device_stream(device_id: int, db: AsyncSession) -> dict | None:
-    """解析设备流地址并注册 MediaMTX 路径（如需要）。返回标准化元数据或 None。"""
-    stream_url, access_type = await _find_stream_url(device_id, db)
+    """解析设备流地址：先 traffic-api；traffic-api 404 时回退 _local_file_fallback。
 
+    直播流 RTSP/RTMP 由 traffic-api 在收到 /start 后内部注册到其 HLS endpoint；
+    本接口直接读 traffic-api /flv 拿到 m3u8 路径。
+    """
+    client = get_traffic_api_client()
+    try:
+        info = await client.device_flv_url(device_id)
+    except TrafficApiNotFoundError:
+        info = None
+    if isinstance(info, dict) and info.get("flv_url"):
+        return {
+            "device_id": device_id,
+            "stream_name": info.get("stream_name"),
+            "flv_url": info["flv_url"],
+            "rtsp_url": info.get("rtsp_url"),
+            "source_type": info.get("source_type", "stream"),
+        }
+
+    # 兜底：本地文件 / HTTP 直连
+    return await _local_file_fallback(device_id, db)
+
+
+async def _local_file_fallback(device_id: int, db: AsyncSession) -> dict | None:
+    """traffic-api 不可用时，从 resolve_stream_url_for_device 解析本地文件 / HTTP 直连 URL。"""
+    stream_url, access_type = await _find_stream_url(device_id, db)
     if not stream_url:
         return None
 
-    # 本地文件路径：直接返回文件 URL，不经过 mediamtx
+    # 本地文件路径：直接返回文件 URL
     if stream_url.startswith("docs/") or stream_url.startswith("/") or access_type == "本地":
         file_path = Path(stream_url) if stream_url.startswith("/") else _PROJECT_ROOT / stream_url
         if not file_path.exists():
             return None
-        # 本地文件 URL：静态资源挂载在 /uploads，目录为 project_root/docs，
-        # 因此相对路径 docs/monitoring/xxx.mp4 应映射为 /uploads/monitoring/xxx.mp4
         if stream_url.startswith("docs/"):
             flv_url = f"/uploads/{stream_url[5:]}"
         elif stream_url.startswith("/"):
@@ -207,31 +241,5 @@ async def _resolve_device_stream(device_id: int, db: AsyncSession) -> dict | Non
             "source_type": "http",
         }
 
-    # RTSP/RTMP 流：通过 mediamtx 注册并返回 HLS 地址
-    stream_name = f"device_{device_id}"
-    hls_url = f"/stream/{stream_name}/index.m3u8"
-
-    try:
-        async with httpx.AsyncClient(timeout=_MEDIAMTX_TIMEOUT) as client:
-            resp = await client.post(
-                f"{MEDIAMTX_API}/v3/config/paths/add/{stream_name}",
-                json={
-                    "source": stream_url,
-                    "sourceOnDemand": False,
-                },
-            )
-            # 400 表示路径已存在，MediaMTX 幂等处理；视为成功以避免重复注册报错
-            if resp.status_code not in (200, 201, 204, 400):
-                raise HTTPException(status_code=502, detail="注册流路径失败")
-    except httpx.ConnectError:
-        raise HTTPException(status_code=502, detail="mediamtx 服务不可用")
-    except httpx.TimeoutException:
-        raise HTTPException(status_code=504, detail="mediamtx 注册超时")
-
-    return {
-        "device_id": device_id,
-        "stream_name": stream_name,
-        "flv_url": hls_url,
-        "rtsp_url": stream_url,
-        "source_type": "stream",
-    }
+    # RTSP/RTMP 在无 traffic-api 情况下无法播放，返回 None
+    return None
