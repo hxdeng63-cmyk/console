@@ -56,6 +56,25 @@ export function useTaskPolling() {
           return
         }
         if (res.status === 'failed') {
+          // traffic-api 状态机：上一个 task 刚 completed 但 active slot 还没释放
+          // → ai-console 后端透传 409 → task 标 failed + error 含"状态冲突"
+          // 自动 sleep + 重新调 start（让 ai-console 后端拿到新 task_id）后重试轮询
+          if (/状态冲突/.test(String(res.error || '')) && startAttempts < MAX_TASK_ATTEMPTS) {
+            await new Promise(r => setTimeout(r, 2000))
+            try {
+              const restart = await deploymentApi.start(startArgs!.deploymentId, {
+                module_name: startArgs!.moduleName,
+                video_path: 'auto',
+                stream_map: { [String(startArgs!.deploymentId)]: String(startArgs!.deploymentId) },
+                config: { callback_url: '', push_interval: 1.0 },
+              })
+              if (restart?.task_id) {
+                startArgs!.taskId = restart.task_id
+                startAttempts = 0
+                return  // 继续轮询
+              }
+            } catch { /* 落到下面正常错误处理 */ }
+          }
           ElMessage.error(`${startArgs!.moduleName} 启动失败：${res.error || '未知错误'}`)
           stopStartPoll()
           return
