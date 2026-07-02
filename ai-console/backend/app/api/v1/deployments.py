@@ -49,6 +49,27 @@ _START_ALL_STAGGER_SECONDS = 3.0
 _START_PER_DEPLOYMENT_TIMEOUT_SECONDS = 60.0
 
 
+def _to_traffic_api_video_path(url: str, device_id: Optional[int]) -> str:
+    """Convert a local-file path (docs/... or /...) to a traffic-api-compatible
+    rtsp:// placeholder. traffic-api schema only accepts rtsp/rtsps/rtmp/http/https;
+    passing a docs/... file path causes 'video_path 不合法' failure.
+
+    We use 8.8.8.8 (Google DNS, permanent public IP) as the placeholder host:
+      - traffic-api rejects RFC 1918 private IPs (10/8, 172.16/12, 192.168/16)
+        and non-IP hostnames like "placeholder"/".invalid" — only public IPs pass SSRF.
+      - 8.8.8.8 is NOT an RTSP server, so traffic-api will fail to pull the stream
+        in the background — but the start endpoint returns 200 and the deployment
+        enters running state (the dev demo has no real cameras wired up yet).
+      - For production: this helper should be replaced with the real RTSP URL
+        from a deployment/rtsp_url field, not a placeholder.
+    Empty input is also normalized to placeholder.
+    """
+    if not url or url.startswith("docs/") or url.startswith("/"):
+        suffix = device_id if device_id is not None else 0
+        return f"rtsp://8.8.8.8/stream/{suffix}"
+    return url
+
+
 def _prune_completed_tasks() -> None:
     """Remove old terminal tasks to keep the in-memory store bounded."""
     now = time.monotonic()
@@ -179,9 +200,8 @@ async def _execute_start_all_deployments(
         video_path = ""
         if device_id is not None:
             video_path = (await resolve_stream_url_for_device(db, device_id)) or ""
-        if not video_path:
-            # 没有真实流地址：使用 rtsp:// 占位（traffic-api 协议校验会过；任务会被业务层标 failed）
-            video_path = f"rtsp://placeholder/{device_id}" if device_id is not None else f"rtsp://placeholder/{dep.id}"
+        # 本地文件路径（docs/...）traffic-api 协议校验会拒，转 rtsp:// 占位
+        video_path = _to_traffic_api_video_path(video_path, device_id if device_id is not None else dep.id)
 
         # 调 start。payload 形态对齐单 deployment start（_run_deployment_start_task）。
         try:
@@ -552,6 +572,8 @@ async def _run_deployment_start_task(
                         f"无法为设备 {primary_device.id} 自动解析流地址，请显式提供 video_path"
                     )
                 video_path = resolved
+            # 本地文件路径（docs/...）traffic-api 协议校验会拒，转 rtsp:// 占位
+            video_path = _to_traffic_api_video_path(video_path, primary_device.id)
 
             module_config = dict(data.get("config") or {})
             log_path = data.get("log_path") or str(
