@@ -224,7 +224,7 @@ async function fetchAlgorithms() {
   } catch { ElMessage.error('加载算法列表失败') }
 }
 
-async function stopExisting(deploymentId: number): Promise<boolean> {
+async function stopExisting(deploymentId: number, existing?: any): Promise<boolean> {
   try {
     const stopRes: any = await deploymentApi.stop(deploymentId)
     if (!stopRes?.task_id) return true
@@ -232,7 +232,16 @@ async function stopExisting(deploymentId: number): Promise<boolean> {
     return r.outcome !== 'timeout'
   } catch (err: any) {
     const s = err?.response?.status
-    if (s === 404 || s === 410) return true
+    if (s === 404 || s === 410) {
+      // traffic-api 端 404：任务已结束，但 DB 里 deployment 状态可能仍卡在
+      // running/pending/stopping。必须主动重置，否则 ensureDeploymentId 会
+      // 看到旧状态再次调 stop → 死循环。{ ...existing } 展开保留 device_ids
+      // 等必填字段，避免后端 PUT 删除 device 关联。
+      if (existing) {
+        try { await deploymentApi.update(deploymentId, { ...existing, algorithm_status: 'stopped' }) } catch {}
+      }
+      return true
+    }
     ElMessage.error('停止旧任务失败，已阻断启动：' + (err?.response?.data?.detail || err?.message || '未知错误'))
     return false
   }
@@ -243,7 +252,7 @@ async function ensureDeploymentId(rawId: number, algorithmId: number, moduleName
   const item = existing.items?.[0]
   if (item) {
     if (['running', 'pending', 'stopping'].includes(item.algorithm_status)) {
-      if (!(await stopExisting(item.id))) return null
+      if (!(await stopExisting(item.id, item))) return null
     }
     return item.id
   }
@@ -265,11 +274,25 @@ async function handleAlgorithmChange(value: string) {
   try {
     const deploymentId = await ensureDeploymentId(rawId, algorithmId, moduleName)
     if (!deploymentId) return
-    const startRes: any = await deploymentApi.start(deploymentId, {
+    const startPayload = {
       module_name: moduleName, video_path: 'auto',
       stream_map: { [String(rawId)]: String(rawId) },
       config: { callback_url: (import.meta.env.VITE_TRAFFIC_CALLBACK_URL as string) || '', push_interval: 1.0 },
-    })
+    }
+    let startRes: any
+    try {
+      startRes = await deploymentApi.start(deploymentId, startPayload)
+    } catch (firstErr: any) {
+      // traffic-api 状态机：上一个 task completed 后短暂（数秒）未释放 slot
+      // → 409 状态冲突。等 2s 重试一次。
+      const status = firstErr?.response?.status
+      if (status === 409) {
+        await new Promise(r => setTimeout(r, 2000))
+        startRes = await deploymentApi.start(deploymentId, startPayload)
+      } else {
+        throw firstErr
+      }
+    }
     tasks.startStartPoll({
       deploymentId, taskId: startRes.task_id, moduleName,
       onSuccess: () => {
