@@ -280,17 +280,20 @@ async function handleAlgorithmChange(value: string) {
       config: { callback_url: (import.meta.env.VITE_TRAFFIC_CALLBACK_URL as string) || '', push_interval: 1.0 },
     }
     let startRes: any
-    try {
-      startRes = await deploymentApi.start(deploymentId, startPayload)
-    } catch (firstErr: any) {
-      // traffic-api 状态机：上一个 task completed 后短暂（数秒）未释放 slot
-      // → 409 状态冲突。等 2s 重试一次。
-      const status = firstErr?.response?.status
-      if (status === 409) {
-        await new Promise(r => setTimeout(r, 2000))
+    const MAX_START_ATTEMPTS = 3
+    for (let attempt = 1; attempt <= MAX_START_ATTEMPTS; attempt += 1) {
+      try {
         startRes = await deploymentApi.start(deploymentId, startPayload)
-      } else {
-        throw firstErr
+        break
+      } catch (startErr: any) {
+        // traffic-api 状态机：上一个 task completed 后短暂（数秒）未释放 slot
+        // → 409 状态冲突。最多重试 3 次，每次 sleep 2s。
+        const status = startErr?.response?.status
+        if (status === 409 && attempt < MAX_START_ATTEMPTS) {
+          await new Promise(r => setTimeout(r, 2000))
+          continue
+        }
+        throw startErr
       }
     }
     tasks.startStartPoll({
