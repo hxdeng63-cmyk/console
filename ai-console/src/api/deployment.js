@@ -9,8 +9,8 @@ export const deploymentApi = {
   delete: (id) => request.delete(`/deployments/${id}`),
 
   // Deployment lifecycle
-  restartAll: () => request.post('/deployments/restart-all'),
-  getRestartAllStatus: (taskId) => request.get(`/deployments/restart-all/status/${taskId}`),
+  startAll: () => request.post('/deployments/start-all'),
+  getStartAllStatus: (taskId) => request.get(`/deployments/start-all/status/${taskId}`),
   start: (id, data) => request.post(`/deployments/${id}/start`, data),
   startStatus: (id, taskId) => request.get(`/deployments/${id}/start/status/${taskId}`),
   stop: (id) => request.post(`/deployments/${id}/stop`),

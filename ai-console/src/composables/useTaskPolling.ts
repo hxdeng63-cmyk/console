@@ -12,22 +12,22 @@ export interface StartPollArgs {
   onSuccess?: (deploymentId: number, taskId: string, moduleName: string) => void
 }
 
-export interface RestartPollArgs {
+export interface StartAllPollArgs {
   taskId: string
-  onCompleted: (summary: { restarted: number; failed: number; skipped: number }) => void
+  onCompleted: (summary: { started: number; failed: number; skipped: number }) => void
   onFailed: (error: string) => void
 }
 
 export function useTaskPolling() {
-  const restarting = ref(false)
+  const startingAll = ref(false)
 
   let startTimer: number | null = null
   let startAttempts = 0
   let startArgs: StartPollArgs | null = null
 
-  let restartTimer: number | null = null
-  let restartErrorReported = false
-  let restartArgs: RestartPollArgs | null = null
+  let startAllTimer: number | null = null
+  let startAllErrorReported = false
+  let startAllArgs: StartAllPollArgs | null = null
 
   function clearStartTimer() {
     if (startTimer !== null) {
@@ -36,10 +36,10 @@ export function useTaskPolling() {
     }
   }
 
-  function clearRestartTimer() {
-    if (restartTimer !== null) {
-      window.clearInterval(restartTimer)
-      restartTimer = null
+  function clearStartAllTimer() {
+    if (startAllTimer !== null) {
+      window.clearInterval(startAllTimer)
+      startAllTimer = null
     }
   }
 
@@ -73,27 +73,27 @@ export function useTaskPolling() {
     })()
   }
 
-  function pollRestart() {
-    if (!restartArgs) return
+  function pollStartAll() {
+    if (!startAllArgs) return
     void (async () => {
       try {
-        const status: any = await deploymentApi.getRestartAllStatus(restartArgs!.taskId)
-        const { status: taskStatus, restarted = 0, failed = 0, skipped = 0, error } = status
+        const status: any = await deploymentApi.getStartAllStatus(startAllArgs!.taskId)
+        const { status: taskStatus, started = 0, failed = 0, skipped = 0, error } = status
         if (taskStatus === 'completed') {
-          ElMessage.success(`重新监测完成：已重启 ${restarted} 个，失败 ${failed} 个，跳过 ${skipped} 个`)
-          restartArgs!.onCompleted({ restarted, failed, skipped })
-          stopRestartPoll()
+          ElMessage.success(`开始监测完成：已启动 ${started} 个，失败 ${failed} 个，跳过 ${skipped} 个`)
+          startAllArgs!.onCompleted({ started, failed, skipped })
+          stopStartAllPoll()
         } else if (taskStatus === 'failed') {
-          ElMessage.error('重新监测失败：' + (error || '未知错误'))
-          restartArgs!.onFailed(error || '未知错误')
-          stopRestartPoll()
+          ElMessage.error('开始监测失败：' + (error || '未知错误'))
+          startAllArgs!.onFailed(error || '未知错误')
+          stopStartAllPoll()
         }
       } catch (pollError: any) {
-        if (!restartErrorReported) {
-          restartErrorReported = true
+        if (!startAllErrorReported) {
+          startAllErrorReported = true
           ElMessage.error('轮询任务进度失败：' + (pollError?.message || '未知错误'))
         }
-        stopRestartPoll()
+        stopStartAllPoll()
       }
     })()
   }
@@ -110,33 +110,33 @@ export function useTaskPolling() {
     startArgs = null
   }
 
-  function startRestartPoll(args: RestartPollArgs) {
-    stopRestartPoll()
-    restarting.value = true
-    restartErrorReported = false
-    restartArgs = args
-    restartTimer = window.setInterval(pollRestart, POLL_TASK_MS)
+  function startStartAllPoll(args: StartAllPollArgs) {
+    stopStartAllPoll()
+    startingAll.value = true
+    startAllErrorReported = false
+    startAllArgs = args
+    startAllTimer = window.setInterval(pollStartAll, POLL_TASK_MS)
   }
 
-  function stopRestartPoll() {
-    clearRestartTimer()
-    restartArgs = null
-    restarting.value = false
+  function stopStartAllPoll() {
+    clearStartAllTimer()
+    startAllArgs = null
+    startingAll.value = false
   }
 
   function dispose() {
     stopStartPoll()
-    stopRestartPoll()
+    stopStartAllPoll()
   }
 
   onUnmounted(dispose)
 
   return {
-    restarting,
+    startingAll,
     startStartPoll,
     stopStartPoll,
-    startRestartPoll,
-    stopRestartPoll,
+    startStartAllPoll,
+    stopStartAllPoll,
     dispose,
   }
 }

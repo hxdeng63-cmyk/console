@@ -22,12 +22,12 @@
             :algorithms="algorithms"
             :channel="selectedChannel"
             :algorithm="selectedAlgorithm"
-            :restarting="tasks.restarting.value"
+            :starting-all="tasks.startingAll.value"
             :get-event-type-display-name="getEventTypeDisplayName"
             @update:channel="selectedChannel = $event"
             @update:algorithm="selectedAlgorithm = $event"
             @change:algorithm="handleAlgorithmChange"
-            @restart="handleRestartAll"
+            @start-all="handleStartAll"
           />
         </div>
 
@@ -283,18 +283,18 @@ async function handleAlgorithmChange(value: string) {
   }
 }
 
-async function handleRestartAll() {
-  if (tasks.restarting.value) return
+async function handleStartAll() {
+  if (tasks.startingAll.value) return
   try {
-    const { task_id }: any = await deploymentApi.restartAll()
+    const { task_id }: any = await deploymentApi.startAll()
     if (!task_id) throw new Error('未返回任务 ID')
-    ElMessage.info('重新监测任务已启动，正在轮询进度…')
-    tasks.startRestartPoll({
+    ElMessage.info('开始监测任务已启动，正在轮询进度…')
+    tasks.startStartAllPoll({
       taskId: task_id, onCompleted: () => undefined,
-      onFailed: (err) => ElMessage.error('重新监测失败：' + err),
+      onFailed: (err) => ElMessage.error('开始监测失败：' + err),
     })
   } catch (error: any) {
-    ElMessage.error('重新监测失败：' + (error?.message || '未知错误'))
+    ElMessage.error('开始监测失败：' + (error?.message || '未知错误'))
   }
 }
 

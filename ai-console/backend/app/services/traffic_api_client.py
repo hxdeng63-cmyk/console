@@ -144,12 +144,19 @@ class TrafficApiClient:
                 status_code=502,
                 payload=_safe_payload(resp),
             )
-        # 其他 4xx（422/400 等）原样上抛
-        raise TrafficApiError(
-            f"traffic-api 错误: {method} {path} — HTTP {resp.status_code}",
-            status_code=resp.status_code,
-            payload=_safe_payload(resp),
-        )
+        # 其他 4xx（422/400 等）—— 尽量提取 traffic-api 的业务消息（detail.message / detail / message）
+        safe = _safe_payload(resp)
+        detail_msg = None
+        if isinstance(safe, dict):
+            detail = safe.get("detail")
+            if isinstance(detail, dict) and detail.get("message"):
+                detail_msg = str(detail["message"])
+            elif isinstance(detail, str):
+                detail_msg = detail
+            elif safe.get("message"):
+                detail_msg = str(safe["message"])
+        msg = detail_msg or f"traffic-api 错误: {method} {path} — HTTP {resp.status_code}"
+        raise TrafficApiError(msg, status_code=resp.status_code, payload=safe)
 
     # ---- 部署生命周期 ----------------------------------------------
 
@@ -195,19 +202,6 @@ class TrafficApiClient:
         result = await self._request(
             "GET", f"/api/v1/deployments/{deployment_id}/restart/status/{task_id}"
         )
-        return result if isinstance(result, dict) else {}
-
-    async def restart_all(self, deployment_ids: Optional[List[int]] = None) -> Dict[str, Any]:
-        """POST /api/v1/deployments/restart-all。可选 deployment_ids 过滤。"""
-        body: Dict[str, Any] = {}
-        if deployment_ids is not None:
-            body["deployment_ids"] = [str(d) for d in deployment_ids]
-        result = await self._request("POST", "/api/v1/deployments/restart-all", json=body)
-        return result if isinstance(result, dict) else {}
-
-    async def restart_all_status(self, task_id: str) -> Dict[str, Any]:
-        """GET /api/v1/deployments/restart-all/status/{task_id}。"""
-        result = await self._request("GET", f"/api/v1/deployments/restart-all/status/{task_id}")
         return result if isinstance(result, dict) else {}
 
     # ---- 流注册 & 播放 --------------------------------------------

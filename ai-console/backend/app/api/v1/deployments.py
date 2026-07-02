@@ -35,19 +35,18 @@ from app.services.traffic_api_client import (
 
 router = APIRouter(prefix="/deployments", tags=["deployments"])
 
-# In-memory store for async restart-all tasks. Keyed by task_id.
-_restart_all_tasks: dict[str, dict[str, Any]] = {}
-_restart_all_lock = asyncio.Lock()
+# In-memory store for async start-all tasks. Keyed by task_id.
+_start_all_tasks: dict[str, dict[str, Any]] = {}
+_start_all_lock = asyncio.Lock()
 
 # How long terminal tasks remain queryable (seconds).
 _COMPLETED_TASK_TTL_SECONDS = 3600
 
-# Polling interval for traffic-api restart-all status (seconds).
-_RESTART_ALL_POLL_INTERVAL_SECONDS = 2.0
+# 启动间隔，避免并发抢显存（与 traffic-api 默认 TRAFFIC_API_STARTUP_STAGGER_SECONDS=3 对齐）。
+_START_ALL_STAGGER_SECONDS = 3.0
 
-# Hard cap on how long we'll poll a single traffic-api task (seconds).
-# Prevents leaked polling loops when traffic-api never reaches a terminal state.
-_RESTART_ALL_POLL_TIMEOUT_SECONDS = 1800
+# Per-deployment start 超时（秒）。traffic-api 默认最长 60s 内反馈 task_id。
+_START_PER_DEPLOYMENT_TIMEOUT_SECONDS = 60.0
 
 
 def _prune_completed_tasks() -> None:
@@ -55,22 +54,22 @@ def _prune_completed_tasks() -> None:
     now = time.monotonic()
     stale_keys = [
         task_id
-        for task_id, info in list(_restart_all_tasks.items())
+        for task_id, info in list(_start_all_tasks.items())
         if info.get("status") in ("completed", "failed")
         and now - info.get("completed_at", now) > _COMPLETED_TASK_TTL_SECONDS
     ]
     for task_id in stale_keys:
-        del _restart_all_tasks[task_id]
+        del _start_all_tasks[task_id]
 
 
-async def _set_task_state(
+async def _set_start_all_state(
     task_id: str,
     status: str,
     extra: Optional[dict[str, Any]] = None,
 ) -> None:
-    """Atomic, lock-protected update of a restart-all task's state."""
-    async with _restart_all_lock:
-        task_info = _restart_all_tasks.get(task_id)
+    """Atomic, lock-protected update of a start-all task's state."""
+    async with _start_all_lock:
+        task_info = _start_all_tasks.get(task_id)
         if task_info is None:
             return
         task_info["status"] = status
@@ -80,151 +79,186 @@ async def _set_task_state(
             task_info["completed_at"] = time.monotonic()
 
 
-async def _run_restart_all_task(task_id: str) -> None:
-    """Execute restart-all in a background task with a fresh DB session."""
+async def _run_start_all_task(task_id: str) -> None:
+    """Execute start-all in a background task with a fresh DB session."""
     async with AsyncSessionLocal() as db:
         try:
-            await _execute_restart_all_deployments(task_id, db)
+            await _execute_start_all_deployments(task_id, db)
         except Exception as exc:
-            logging.exception("Restart-all task %s failed", task_id)
-            await _set_task_state(task_id, "failed", {"error": str(exc)})
+            logging.exception("Start-all task %s failed", task_id)
+            await _set_start_all_state(task_id, "failed", {"error": str(exc)})
 
 
-async def _execute_restart_all_deployments(
+async def _execute_start_all_deployments(
     task_id: str,
     db: AsyncSession,
 ) -> None:
-    """透传到 traffic-api POST /api/v1/deployments/restart-all。
+    """对所有「未运行」的 deployment 发起启动请求。
 
-    进度字段 total/restarted/failed/skipped/errors[] 由 traffic-api 直接返回
-    （API_SERVICE(1).md:501-512），本地只负责状态分发与最终汇总。
+    候选条件：deleted_at IS NULL AND algorithm_id IS NOT NULL AND module_name IS NOT NULL
+              AND algorithm_status NOT IN ('running','pending','stopping')
+
+    对每个 candidate 先调 traffic-api `GET /deployments/{id}/status` 二次确认：
+      - 404（traffic-api 内存无记录）→ 视为可启动
+      - status ∈ {stopped, crashed, completed} → 可启动
+      - status ∈ {pending, running, stopping} → skipped（并发竞态）
+    然后调 `POST /deployments/{id}/start`，TrafficApiConflictError 记 skipped，其它记 failed。
+
+    进度字段：total / started / skipped / failed / errors[]。
     """
-    await _set_task_state(task_id, "running")
+    await _set_start_all_state(task_id, "running")
 
-    result = await db.execute(select(Deployment).where(Deployment.deleted_at.is_(None)))
-    deployments = result.scalars().all()
-    deployment_ids = [d.id for d in deployments if d.algorithm_id and d.module_name]
+    result = await db.execute(
+        select(Deployment).where(Deployment.deleted_at.is_(None))
+    )
+    deployments = list(result.scalars().all())
 
-    await _set_task_state(task_id, "running", {"total": len(deployment_ids)})
+    candidates = [
+        d for d in deployments
+        if d.algorithm_id
+        and d.module_name
+        and (d.algorithm_status or "").lower() not in ("running", "pending", "stopping")
+    ]
 
-    client = get_traffic_api_client()
-    try:
-        # 一次性透传：traffic-api 内部负责逐个 stop+start（间隔避免 GPU 抢占）。
-        api_result = await client.restart_all(deployment_ids=deployment_ids or None)
-    except (TrafficApiUnavailableError, TrafficApiAuthError, TrafficApiServerError) as exc:
-        await _set_task_state(
-            task_id,
-            "failed",
-            {"error": str(exc), "errors": [{"error": str(exc)}]},
+    await _set_start_all_state(task_id, "running", {"total": len(candidates)})
+
+    # 预先按 deployment_id 索引关联设备（一个 deployment 可能多设备，取首个主设备做 video_path 解析）
+    dep_ids = [d.id for d in candidates]
+    primary_device_id: dict[int, int] = {}
+    if dep_ids:
+        stmt = select(DeploymentDevice.deployment_id, DeploymentDevice.device_id).where(
+            DeploymentDevice.deployment_id.in_(dep_ids)
         )
-        return
+        result = await db.execute(stmt)
+        seen: set[int] = set()
+        for dep_id, dev_id in result.all():
+            if dep_id in seen:
+                continue
+            primary_device_id[dep_id] = dev_id
+            seen.add(dep_id)
 
-    # traffic-api 返回的 task_id 缓存为子任务，便于前端轮询（前端沿用本地 task_id）。
-    sub_task_id = api_result.get("task_id") if isinstance(api_result, dict) else None
-
-    # traffic-api 同步返回的初始进度（可能为 0，因为真正的工作仍在异步执行）。
-    initial_restarted = int(api_result.get("restarted", 0)) if isinstance(api_result, dict) else 0
-    initial_failed = int(api_result.get("failed", 0)) if isinstance(api_result, dict) else 0
-    initial_skipped = int(api_result.get("skipped", 0)) if isinstance(api_result, dict) else 0
-    initial_errors: list[dict[str, Any]] = (
-        list(api_result.get("errors", [])) if isinstance(api_result, dict) else []
-    )
-
-    # 先发布初始进度 + traffic_api_task_id，task 保持 running。
-    await _set_task_state(
-        task_id,
-        "running",
-        {
-            "total": len(deployment_ids),
-            "restarted": initial_restarted,
-            "failed": initial_failed,
-            "skipped": initial_skipped,
-            "errors": initial_errors,
-            "traffic_api_task_id": sub_task_id,
-        },
-    )
-
-    if not sub_task_id:
-        # 兜底：traffic-api 没有返回 task_id，视为同步完成。
-        await _set_task_state(task_id, "completed")
-        return
-
-    # 进入轮询：traffic-api 的 restart-all 是异步任务，需等待其真正完成。
     client = get_traffic_api_client()
-    deadline = time.monotonic() + _RESTART_ALL_POLL_TIMEOUT_SECONDS
-    while True:
-        await asyncio.sleep(_RESTART_ALL_POLL_INTERVAL_SECONDS)
-        if time.monotonic() > deadline:
-            await _set_task_state(
-                task_id,
-                "failed",
-                {"error": f"traffic-api 任务轮询超时（>{_RESTART_ALL_POLL_TIMEOUT_SECONDS}s）"},
-            )
-            return
+    started = 0
+    skipped = 0
+    failed = 0
+    errors: list[dict[str, Any]] = []
+
+    for idx, dep in enumerate(candidates):
+        if idx > 0:
+            await asyncio.sleep(_START_ALL_STAGGER_SECONDS)
+
+        # 二次确认 traffic-api 端状态（容器重启后 DB 状态可能与实际不一致）
         try:
-            poll = await client.restart_all_status(sub_task_id)
-        except (TrafficApiUnavailableError, TrafficApiAuthError, TrafficApiServerError) as exc:
-            await _set_task_state(
+            traffic_status = await client.status(dep.id)
+            live = (traffic_status.get("status") or "").lower() if isinstance(traffic_status, dict) else ""
+            if live in ("pending", "running", "stopping"):
+                skipped += 1
+                errors.append({"deployment_id": dep.id, "error": f"traffic-api 已在 {live}，跳过"})
+                await _set_start_all_state(
+                    task_id,
+                    "running",
+                    {"started": started, "skipped": skipped, "failed": failed, "errors": errors},
+                )
+                continue
+        except TrafficApiNotFoundError:
+            # 404：traffic-api 容器内无记录，可启动
+            pass
+        except (TrafficApiAuthError, TrafficApiUnavailableError, TrafficApiServerError) as exc:
+            failed += 1
+            errors.append({"deployment_id": dep.id, "error": str(exc)})
+            await _set_start_all_state(
                 task_id,
-                "failed",
-                {"error": f"traffic-api 状态查询失败: {exc}"},
+                "running",
+                {"started": started, "skipped": skipped, "failed": failed, "errors": errors},
             )
-            return
-
-        if not isinstance(poll, dict):
             continue
-        # 透传最新进度
-        progress_extra: dict[str, Any] = {
-            "traffic_api_task_id": sub_task_id,
-            "total": len(deployment_ids),
-            "restarted": int(poll.get("restarted", initial_restarted) or 0),
-            "failed": int(poll.get("failed", initial_failed) or 0),
-            "skipped": int(poll.get("skipped", initial_skipped) or 0),
-            "errors": list(poll.get("errors", initial_errors) or []),
-        }
-        traffic_status = (poll.get("status") or "").lower()
-        if traffic_status in ("completed", "succeeded", "done"):
-            await _set_task_state(task_id, "completed", progress_extra)
-            return
-        if traffic_status in ("failed", "error", "cancelled", "canceled"):
-            await _set_task_state(
-                task_id,
-                "failed",
-                {**progress_extra, "error": poll.get("error") or "traffic-api 任务失败"},
+
+        # 解析 video_path：与单 start（_run_deployment_start_task）行为一致
+        # 优先用 DataSource/DeviceStream 里查到的真 URL；查不到时退化为 stream_id 形式的 rtsp 占位
+        device_id = primary_device_id.get(dep.id)
+        video_path = ""
+        if device_id is not None:
+            video_path = (await resolve_stream_url_for_device(db, device_id)) or ""
+        if not video_path:
+            # 没有真实流地址：使用 rtsp:// 占位（traffic-api 协议校验会过；任务会被业务层标 failed）
+            video_path = f"rtsp://placeholder/{device_id}" if device_id is not None else f"rtsp://placeholder/{dep.id}"
+
+        # 调 start。payload 形态对齐单 deployment start（_run_deployment_start_task）。
+        try:
+            await asyncio.wait_for(
+                client.start(
+                    dep.id,
+                    {
+                        "module_name": dep.module_name,
+                        "video_path": video_path,
+                        "stream_map": {str(dep.id): str(dep.id)},
+                        "config": {
+                            "callback_url": settings.TRAFFIC_API_DEFAULT_CALLBACK_URL or "",
+                            "push_interval": 1.0,
+                        },
+                    },
+                ),
+                timeout=_START_PER_DEPLOYMENT_TIMEOUT_SECONDS,
             )
-            return
-        # 仍进行中：发布最新进度
-        await _set_task_state(task_id, "running", progress_extra)
+            started += 1
+            # 立即把 DB 状态置 pending（traffic-api 已接受请求）
+            dep.algorithm_status = "pending"
+            await db.commit()
+        except TrafficApiConflictError as exc:
+            skipped += 1
+            errors.append({"deployment_id": dep.id, "error": f"conflict: {exc}"})
+        except (TrafficApiAuthError, TrafficApiUnavailableError, TrafficApiServerError) as exc:
+            failed += 1
+            errors.append({"deployment_id": dep.id, "error": str(exc)})
+        except asyncio.TimeoutError:
+            failed += 1
+            errors.append({"deployment_id": dep.id, "error": "start 请求超时"})
+        except Exception as exc:
+            # 兜底：未知异常记 failed 但不中断整个 batch
+            logging.exception("Unexpected error starting deployment %s", dep.id)
+            failed += 1
+            errors.append({"deployment_id": dep.id, "error": f"unexpected: {exc}"})
+
+        await _set_start_all_state(
+            task_id,
+            "running",
+            {"started": started, "skipped": skipped, "failed": failed, "errors": errors},
+        )
+
+    await _set_start_all_state(
+        task_id,
+        "completed",
+        {"started": started, "skipped": skipped, "failed": failed, "errors": errors},
+    )
 
 
-@router.post("/restart-all", response_model=dict)
-async def restart_all_deployments() -> dict:
-    """Start an asynchronous task that restarts all deployments.
+@router.post("/start-all", response_model=dict)
+async def start_all_deployments() -> dict:
+    """启动所有未运行的 deployment。立即返回 task_id。
 
-    Returns immediately with a task_id that can be polled via
-    GET /deployments/restart-all/status/{task_id}.
+    轮询进度：GET /deployments/start-all/status/{task_id}。
     """
     task_id = str(uuid.uuid4())
-    _restart_all_tasks[task_id] = {
+    _start_all_tasks[task_id] = {
         "status": "pending",
         "total": 0,
-        "restarted": 0,
-        "failed": 0,
+        "started": 0,
         "skipped": 0,
+        "failed": 0,
         "errors": [],
         "error": None,
         "completed_at": None,
     }
     _prune_completed_tasks()
-    asyncio.create_task(_run_restart_all_task(task_id))
+    asyncio.create_task(_run_start_all_task(task_id))
     return {"task_id": task_id, "status": "pending"}
 
 
-@router.get("/restart-all/status/{task_id}", response_model=dict)
-async def get_restart_all_status(task_id: str) -> dict:
-    """Poll the status of an asynchronous restart-all task."""
-    async with _restart_all_lock:
-        task = _restart_all_tasks.get(task_id)
+@router.get("/start-all/status/{task_id}", response_model=dict)
+async def get_start_all_status(task_id: str) -> dict:
+    """轮询 start-all 任务进度。"""
+    async with _start_all_lock:
+        task = _start_all_tasks.get(task_id)
         if not task:
             raise HTTPException(status_code=404, detail="任务不存在")
         return dict(task)

@@ -35,19 +35,19 @@
       绘制区域
     </el-button>
     <el-button
-      class="restart-btn"
+      class="start-all-btn"
       type="warning"
-      :loading="restarting"
-      @click="emit('restart')"
+      :loading="startingAll"
+      @click="emit('start-all')"
     >
-      <el-icon><Refresh /></el-icon>
-      重新监测
+      <el-icon><VideoPlay /></el-icon>
+      开始监测
     </el-button>
   </div>
 </template>
 
 <script setup lang="ts">
-import { Edit, Refresh } from '@element-plus/icons-vue'
+import { Edit, VideoPlay } from '@element-plus/icons-vue'
 
 interface AlgorithmGroup {
   id: number
@@ -70,7 +70,7 @@ defineProps<{
   algorithms: AlgorithmGroup[]
   channel: string
   algorithm: string
-  restarting: boolean
+  startingAll: boolean
   getEventTypeDisplayName: (name: string) => string
 }>()
 
@@ -78,7 +78,7 @@ const emit = defineEmits<{
   (e: 'update:channel', v: string): void
   (e: 'update:algorithm', v: string): void
   (e: 'change:algorithm', v: string): void
-  (e: 'restart'): void
+  (e: 'start-all'): void
 }>()
 </script>
 
@@ -95,7 +95,7 @@ const emit = defineEmits<{
 }
 
 .draw-btn,
-.restart-btn {
+.start-all-btn {
   flex: 1;
   min-width: 0;
 }
@@ -109,13 +109,13 @@ const emit = defineEmits<{
   background: rgba(0, 229, 255, 0.1);
 }
 
-.restart-btn {
+.start-all-btn {
   border-color: #ff9f43;
   color: #ff9f43;
   background: transparent;
 }
 
-.restart-btn:hover {
+.start-all-btn:hover {
   background: rgba(255, 159, 67, 0.1);
 }
 </style>
