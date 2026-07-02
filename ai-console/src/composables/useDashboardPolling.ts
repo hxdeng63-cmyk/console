@@ -11,6 +11,7 @@ import { getSceneStats } from '@/api/event-stats'
 import { deploymentApi } from '@/api/deployment'
 import type { AlarmItem } from '@/types/alarm'
 import { roadLevelFromJam } from '@/constants/roadLevel'
+import { getEventTypeDisplayName } from '@/utils/eventType'
 
 export interface DashboardData {
   avgSpeed: string
@@ -55,7 +56,7 @@ export function useDashboardPolling(channel: Ref<string>) {
       alarmList.value = (res.items || []).map((item: any) => ({
         id: item.id,
         time: item.time || item.captureTime?.split(' ')[1] || '00:00:00',
-        type: item.eventType || item.eventTypeName || '未知',
+        type: getEventTypeDisplayName(item.eventType || item.eventTypeName),
         device: item.device || item.cameraName || '',
         deviceName: item.cameraName || item.device || '',
         location: item.location || '',
