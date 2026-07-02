@@ -61,7 +61,7 @@ export function useVideoPlayer(options: UseVideoPlayerOptions) {
       type: 'flv',
       url,
     }, {
-      enableWorker: true,
+      enableWorker: false,
       enableStashBuffer: false,
       stashInitialSize: 128,
     })

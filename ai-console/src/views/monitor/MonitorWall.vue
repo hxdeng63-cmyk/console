@@ -100,7 +100,7 @@ import { useStopPoll } from '@/composables/useStopPoll'
 import { useVisibilityResume } from '@/composables/useVisibilityResume'
 import { useCurrentStream } from '@/composables/useCurrentStream'
 import { getEventTypeDisplayName } from '@/utils/eventType'
-import { getDevices } from '@/api/devices'
+import { getDeviceGroupTree } from '@/api/device-groups'
 import { deploymentApi } from '@/api/deployment'
 import VideoStage from '@/components/dashboard/VideoStage.vue'
 import ChannelSelector from '@/components/dashboard/ChannelSelector.vue'
@@ -133,23 +133,13 @@ const detailDialogVisible = ref(false)
 const videoDialogVisible = ref(false)
 const selectedAlarm = ref<AlarmItem | null>(null)
 const deviceTreeData = ref<DeviceNode[]>([])
+const channels = ref<{ id: string; name: string }[]>([])
 
 const registry = useStreamRegistry()
 const dashboard = useDashboardPolling(selectedChannel)
 const tasks = useTaskPolling()
 const stopPoll = useStopPoll()
 
-const channels = computed(() => {
-  const out: { id: string; name: string }[] = []
-  for (const org of deviceTreeData.value) {
-    if (!org.children) continue
-    for (const g of org.children) {
-      if (!g.children) continue
-      for (const d of g.children) out.push({ id: d.id, name: `${org.name} ${d.name}` })
-    }
-  }
-  return out
-})
 
 const { currentDevice, currentVideoUrl, currentSourceType, currentProtocol } =
   useCurrentStream(selectedChannel, channels, registry.streamMap)
@@ -183,21 +173,44 @@ function parseRawChannelId(channelId: string): number {
 
 async function fetchDeviceTree() {
   try {
-    const res: any = await getDevices({ page: 1, page_size: 100 })
-    const grouped: Record<string, Record<string, any[]>> = {}
-    for (const d of res.items || []) {
-      const org = d.org_name || d.org || '未知组织'
-      const region = d.region_name || d.region || '未知区域'
-      ;((grouped[org] ??= {})[region] ??= []).push({
-        id: `device-${d.id}`, name: d.name, type: 'camera' as const, online: d.status === 'active', ip: '',
-      })
+    const tree: any[] = await getDeviceGroupTree()
+    const byCompany = new Map<string, any[]>()
+    const channelList: { id: string; name: string }[] = []
+    function collect(nodes: any[], path: string[]) {
+      for (const n of nodes || []) {
+        if (n.level === 'device') {
+          const id = `device-${n.id}`
+          const prefix = path.join('-').replace('-', ' ')  // "海东公司-大学城北-北区" → "海东公司 大学城北-北区"
+          channelList.push({ id, name: `${prefix}-${n.name}` })
+          const companyName = path[0] || ''
+          if (!byCompany.has(companyName)) byCompany.set(companyName, [])
+          byCompany.get(companyName)!.push({
+            id,
+            name: n.name,
+            type: 'camera' as const,
+            online: n.status === 'active',
+            ip: '',
+          })
+        } else {
+          collect(n.children || [], [...path, n.name])
+        }
+      }
     }
-    deviceTreeData.value = Object.entries(grouped).map(([orgName, regions]) => ({
-      id: `org-${orgName}`, name: orgName, type: 'org' as const, online: true,
-      children: Object.entries(regions).map(([rn, cams]) => ({
-        id: `group-${rn}`, name: rn, type: 'group' as const, online: true, children: cams,
-      })),
+    collect(tree, [])
+    deviceTreeData.value = Array.from(byCompany, ([orgName, cams]) => ({
+      id: `org-${orgName}`,
+      name: orgName,
+      type: 'org' as const,
+      online: true,
+      children: [{
+        id: `group-${orgName}`,
+        name: orgName,
+        type: 'group' as const,
+        online: true,
+        children: cams,
+      }],
     }))
+    channels.value = channelList
   } catch { ElMessage.error('获取设备列表失败') }
 }
 

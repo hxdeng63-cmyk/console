@@ -35,6 +35,7 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import MonitoringVideoPlayer from '@/components/monitor/MonitoringVideoPlayer.vue'
 import VideoPlayer from '@/components/video/VideoPlayer.vue'
 import { isLocalStream } from '@/utils/streamUrl'
@@ -53,7 +54,7 @@ const props = defineProps<{
   error: boolean
 }>()
 
-const isNativeVideo = isLocalStream(props.sourceType, props.videoUrl)
+const isNativeVideo = computed(() => isLocalStream(props.sourceType, props.videoUrl))
 </script>
 
 <style scoped>

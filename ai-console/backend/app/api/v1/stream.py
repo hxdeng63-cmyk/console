@@ -11,7 +11,9 @@ from app.core.database import AsyncSessionLocal, get_db
 from app.models.data_source import DataSource
 from app.services.stream_url_resolver import resolve_stream_url_for_device
 from app.services.traffic_api_client import (
+    TrafficApiAuthError,
     TrafficApiNotFoundError,
+    TrafficApiUnavailableError,
     get_traffic_api_client,
 )
 
@@ -192,7 +194,7 @@ async def _resolve_device_stream(device_id: int, db: AsyncSession) -> dict | Non
     client = get_traffic_api_client()
     try:
         info = await client.device_flv_url(device_id)
-    except TrafficApiNotFoundError:
+    except (TrafficApiNotFoundError, TrafficApiAuthError, TrafficApiUnavailableError):
         info = None
     if isinstance(info, dict) and info.get("flv_url"):
         return {
