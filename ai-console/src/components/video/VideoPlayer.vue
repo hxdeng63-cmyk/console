@@ -116,6 +116,7 @@ const {
   start,
   stopBackgroundActivity,
   resumeBackgroundActivity,
+  setProtocol,
 } = useVideoPlayer({
   url: props.url,
   protocol: props.protocol,
@@ -131,6 +132,13 @@ watch(() => props.url, (newUrl) => {
   if (newUrl && props.autoStart !== false) {
     switchUrl(newUrl)
   }
+})
+
+// protocol prop 变化时必须让 player 按新协议重建 — useVideoPlayer 内部 currentProtocol
+// 只在初始化时取了一次,父组件 protocol 变化(典型: 选算法后 useCurrentStream 把
+// protocol 从 flv 翻 hls)不会被自动感知。setProtocol 内部同步 currentProtocol + loadMedia。
+watch(() => props.protocol, (newProto) => {
+  if (newProto) setProtocol(newProto)
 })
 
 watch(canvasRef, (el) => {

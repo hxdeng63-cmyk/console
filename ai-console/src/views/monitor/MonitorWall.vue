@@ -22,11 +22,11 @@
             :algorithms="algorithms"
             :channel="selectedChannel"
             :algorithm="selectedAlgorithm"
+            :monitoring="monitoring"
             :starting-all="tasks.startingAll.value"
             :get-event-type-display-name="getEventTypeDisplayName"
             @update:channel="selectedChannel = $event"
             @update:algorithm="selectedAlgorithm = $event"
-            @change:algorithm="handleAlgorithmChange"
             @start-all="handleStartAll"
           />
         </div>
@@ -102,6 +102,7 @@ import { useCurrentStream } from '@/composables/useCurrentStream'
 import { getEventTypeDisplayName } from '@/utils/eventType'
 import { getDeviceGroupTree } from '@/api/device-groups'
 import { deploymentApi } from '@/api/deployment'
+import { getDeviceFlvUrl } from '@/api/stream'
 import VideoStage from '@/components/dashboard/VideoStage.vue'
 import ChannelSelector from '@/components/dashboard/ChannelSelector.vue'
 import TrafficMetrics from '@/components/dashboard/TrafficMetrics.vue'
@@ -128,6 +129,7 @@ interface AlgorithmGroup {
 
 const selectedChannel = ref('')
 const selectedAlgorithm = ref('')
+const monitoring = ref(false)
 const eventFilter = ref<'all' | 'danger'>('all')
 const detailDialogVisible = ref(false)
 const videoDialogVisible = ref(false)
@@ -142,7 +144,7 @@ const stopPoll = useStopPoll()
 
 
 const { currentDevice, currentVideoUrl, currentSourceType, currentProtocol } =
-  useCurrentStream(selectedChannel, channels, registry.streamMap)
+  useCurrentStream(selectedChannel, channels, registry.streamMap, selectedAlgorithm)
 
 const algorithms = ref<AlgorithmGroup[]>([])
 const filteredEvents = computed(() => {
@@ -211,6 +213,10 @@ async function fetchDeviceTree() {
       }],
     }))
     channels.value = channelList
+    // 默认选第一个设备，触发 useDashboardPolling watch 把右栏 polling 跑起来。
+    if (!selectedChannel.value && channelList.length) {
+      selectedChannel.value = channelList[0].id
+    }
   } catch { ElMessage.error('获取设备列表失败') }
 }
 
@@ -263,9 +269,14 @@ async function ensureDeploymentId(rawId: number, algorithmId: number, moduleName
   return created.id
 }
 
-async function handleAlgorithmChange(value: string) {
-  if (!value || !selectedChannel.value) return
-  const parts = value.split(':')
+// 启动当前选中通道 + 选中算法。只在"开始监测"按钮点击时调用(选下拉不再触发)。
+// onSuccess 回调里调 getDeviceFlvUrl 刷 streamMap —— 这是修黑屏的关键:
+// traffic-api /start 完成后 HLS 推理流 m3u8 才就绪,register 占位 url 已失效。
+async function startSelectedAlgorithm(): Promise<void> {
+  if (tasks.startingAll.value) return
+  if (!selectedChannel.value) { ElMessage.warning('请先选择预览通道'); return }
+  if (!selectedAlgorithm.value) { ElMessage.warning('请先选择识别算法'); return }
+  const parts = selectedAlgorithm.value.split(':')
   if (parts.length < 3 || !parts[1]) { ElMessage.warning('该算法模块不可运行'); return }
   const [aId, moduleName, eventName] = parts
   const algorithmId = Number(aId)
@@ -300,7 +311,25 @@ async function handleAlgorithmChange(value: string) {
       deploymentId, taskId: startRes.task_id, moduleName,
       onSuccess: () => {
         const rid = parseRawChannelId(selectedChannel.value)
-        if (rid) { void dashboard.fetchDashboardData(rid); void dashboard.fetchAlarms(rid) }
+        if (!rid) return
+        void dashboard.fetchDashboardData(rid)
+        void dashboard.fetchAlarms(rid)
+        // 算法 start success 后,traffic-api 的 HLS 推理流 m3u8 才就绪。
+        // 此时 register 时拿到的占位 flv_url(token 已轮换)已失效,必须重新拉一次
+        // 覆盖 streamMap,否则 useCurrentStream 拿旧 url → 403 → 黑屏。
+        void (async () => {
+          try {
+            const info: any = await getDeviceFlvUrl(rid)
+            if (!info?.flv_url) return
+            registry.streamMap.value = {
+              ...registry.streamMap.value,
+              [`device-${rid}`]: { url: info.flv_url, sourceType: info.source_type || 'stream' },
+            }
+          } catch (err) {
+            console.warn('[MonitorWall] 启动后刷新 flv_url 失败', err)
+          }
+        })()
+        monitoring.value = true
       },
     })
     ElMessage.success('识别任务已启动')
@@ -309,22 +338,85 @@ async function handleAlgorithmChange(value: string) {
   }
 }
 
-async function handleStartAll() {
-  if (tasks.startingAll.value) return
+// 停止当前选中通道 + 选中算法的监测。
+async function stopSelectedAlgorithm(): Promise<void> {
+  if (!monitoring.value) return
+  if (!selectedAlgorithm.value) { monitoring.value = false; return }
+  const parts = selectedAlgorithm.value.split(':')
+  if (parts.length < 3 || !parts[1]) { monitoring.value = false; return }
+  const [, moduleName] = parts
+  const rawId = parseRawChannelId(selectedChannel.value)
+  if (!rawId || !moduleName) { monitoring.value = false; return }
   try {
-    const { task_id }: any = await deploymentApi.startAll()
-    if (!task_id) throw new Error('未返回任务 ID')
-    ElMessage.info('开始监测任务已启动，正在轮询进度…')
-    tasks.startStartAllPoll({
-      taskId: task_id, onCompleted: () => undefined,
-      onFailed: (err) => ElMessage.error('开始监测失败：' + err),
-    })
-  } catch (error: any) {
-    ElMessage.error('开始监测失败：' + (error?.message || '未知错误'))
+    const existing: any = await deploymentApi.list({ device_id: rawId, module_name: moduleName, page: 1, page_size: 1 })
+    const item = existing.items?.[0]
+    if (!item) { monitoring.value = false; return }
+    if (item.algorithm_status === 'stopped') { monitoring.value = false; return }
+    const stopRes: any = await deploymentApi.stop(item.id)
+    if (!stopRes?.task_id) { monitoring.value = false; return }
+    const r = await stopPoll.startStopPoll(item.id, stopRes.task_id)
+    if (r.outcome === 'timeout') {
+      ElMessage.warning('停止任务超时,请稍后再试')
+    }
+  } catch (err: any) {
+    const s = err?.response?.status
+    if (s !== 404 && s !== 410) {
+      ElMessage.error('停止监测失败：' + (err?.response?.data?.detail || err?.message || '未知错误'))
+    }
+  } finally {
+    monitoring.value = false
+  }
+}
+
+async function handleStartAll() {
+  if (monitoring.value) {
+    await stopSelectedAlgorithm()
+  } else {
+    await startSelectedAlgorithm()
   }
 }
 
 useVisibilityResume(() => dashboard.pause(), () => dashboard.resume())
+
+// traffic-api 每次 /stream/devices/register 都会**轮换 stream token**，
+// 批量注册时拿到的 flv_url 在用户真正点开设备时已失效（403 Invalid stream token）。
+// 每次 selectedChannel 变化 → 立刻向 traffic-api 现拉一次最新 flv_url 覆盖 streamMap。
+import { watch as vueWatch } from 'vue'
+vueWatch(() => selectedChannel.value, async (rawId) => {
+  if (!rawId) return
+  const rid = parseRawChannelId(rawId)
+  if (!rid) return
+  try {
+    const info: any = await getDeviceFlvUrl(rid)
+    if (!info?.flv_url) return
+    registry.streamMap.value = {
+      ...registry.streamMap.value,
+      [`device-${rid}`]: { url: info.flv_url, sourceType: info.source_type || 'stream' },
+    }
+  } catch (err) {
+    console.warn('[MonitorWall] 拉取最新 flv_url 失败', err)
+  }
+})
+
+// 选算法本身不启动监测（"开始监测" 按钮才启动），但 hasAlgorithm 翻 true 后
+// useCurrentStream 会立刻读 streamMap.url — 那个 url 可能是 register 时拿的过期 token (403)。
+// 所以 selectedAlgorithm 变非空时也必须**立刻**拉一次最新 flv_url 覆盖 streamMap。
+vueWatch(() => selectedAlgorithm.value, async (val) => {
+  if (!val) return
+  if (!selectedChannel.value) return
+  const rid = parseRawChannelId(selectedChannel.value)
+  if (!rid) return
+  try {
+    const info: any = await getDeviceFlvUrl(rid)
+    if (!info?.flv_url) return
+    registry.streamMap.value = {
+      ...registry.streamMap.value,
+      [`device-${rid}`]: { url: info.flv_url, sourceType: info.source_type || 'stream' },
+    }
+  } catch (err) {
+    console.warn('[MonitorWall] 选算法后拉取最新 flv_url 失败', err)
+  }
+})
 
 onMounted(() => {
   void fetchDeviceTree().then(() => {
@@ -332,11 +424,15 @@ onMounted(() => {
     if (rawIds.length) void registry.registerDeviceStreams(rawIds)
     if (selectedChannel.value) {
       const rid = parseRawChannelId(selectedChannel.value)
-      if (rid) registry.registerDeviceStream(rid.toString())
+      if (rid) {
+        registry.registerDeviceStream(rid.toString())
+        // 默认设备拉一次右栏数据，不等 3s/5s 轮询。
+        void dashboard.fetchAlarms(rid)
+        void dashboard.fetchDashboardData(rid)
+      }
     }
   })
   void fetchAlgorithms()
-  void dashboard.fetchAlarms()
 })
 </script>
 

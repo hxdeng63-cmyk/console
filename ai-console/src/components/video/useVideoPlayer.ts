@@ -248,6 +248,16 @@ export function useVideoPlayer(options: UseVideoPlayerOptions) {
     loadMedia()
   }
 
+  // 父组件 protocol prop 变化时同步内部 currentProtocol 并按新协议重建 player。
+  // 之前 currentProtocol 只在初始化时从 options.protocol 取一次,父组件 protocol 切换
+  // 不会被感知,导致 switchUrl 仍走旧协议分支(典型: flv → hls 时仍 initFlv 吃 .m3u8 → 黑屏)。
+  function setProtocol(p: Protocol) {
+    if (currentProtocol.value !== p) {
+      currentProtocol.value = p
+      loadMedia()
+    }
+  }
+
   function toggleFullscreen() {
     const container = videoRef.value?.parentElement
     if (!container) return
@@ -326,5 +336,6 @@ export function useVideoPlayer(options: UseVideoPlayerOptions) {
     start,
     stopBackgroundActivity,
     resumeBackgroundActivity,
+    setProtocol,
   }
 }
