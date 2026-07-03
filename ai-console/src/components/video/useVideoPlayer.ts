@@ -104,12 +104,15 @@ export function useVideoPlayer(options: UseVideoPlayerOptions) {
       hlsInstance = new Hls({
         enableWorker: true,
         lowLatencyMode: false,
-        manifestLoadingRetryDelay: 1000,
-        levelLoadingRetryDelay: 1000,
-        fragLoadingRetryDelay: 1000,
-        manifestLoadingMaxRetry: 10,
-        levelLoadingMaxRetry: 10,
-        fragLoadingMaxRetry: 10,
+        // 降到 1 次重试:traffic-api stream token 失效时(403)如果一直 retry 同一个死 url,
+        // 用户会看到 10 次 403 闪现(~10s 黑屏)才走到 fatal NETWORK_ERROR → refresh。
+        // 失败立即放弃,让 fatal NETWORK_ERROR 回调尽快触发 onHlsNetworkError 拉新 url。
+        manifestLoadingRetryDelay: 500,
+        levelLoadingRetryDelay: 500,
+        fragLoadingRetryDelay: 500,
+        manifestLoadingMaxRetry: 1,
+        levelLoadingMaxRetry: 1,
+        fragLoadingMaxRetry: 1,
         maxBufferLength: 10,
         maxMaxBufferLength: 15,
         liveSyncDurationCount: 2,
@@ -131,14 +134,20 @@ export function useVideoPlayer(options: UseVideoPlayerOptions) {
       hlsInstance.on(Hls.Events.ERROR, (_event, data) => {
         if (data.fatal) {
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-            // 之前只是 startLoad() 重试同一个死 url,在 traffic-api 轮换 token(403)
-            // 或设备未注册(404) 的情况下永远恢复不了。现在让父组件通过回调
-            // 拉一个新 url 重新 loadSource。如果回调返回 null,放弃并显示错误。
+            // 立刻 stopLoad + destroy 死 url 的 hlsInstance,避免它在 refresh 期间继续 retry。
+            // 然后让父组件通过回调拉新 url,createNewHlsInstance() 整体重建 player。
             const refresh = options.onHlsNetworkError
             if (refresh) {
+              if (hlsInstance) {
+                try {
+                  hlsInstance.stopLoad()
+                  hlsInstance.destroy()
+                } catch { /* ignore */ }
+                hlsInstance = null
+              }
               void refresh().then((newUrl) => {
-                if (newUrl && hlsInstance) {
-                  hlsInstance.loadSource(newUrl)
+                if (newUrl) {
+                  initHls(newUrl)
                 } else {
                   console.error('HLS fatal NETWORK_ERROR: no refresh url available', data)
                   hasError.value = true
