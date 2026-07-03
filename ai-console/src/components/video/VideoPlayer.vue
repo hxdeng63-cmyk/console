@@ -74,6 +74,10 @@ interface Props {
   autoStart?: boolean
   showOverlays?: boolean
   deviceId?: string
+  // 父组件提供一个"网络错误时拉新 url"的回调,VideoPlayer 在 HLS fatal NETWORK_ERROR 时调用它。
+  // 必须返回**同步**的新 url (Promise<string|null>),不能让 VideoPlayer 等着再 emit。
+  // 父组件的回调实现可以是 getDeviceFlvUrl(deviceId) 然后 buildUrl。
+  refreshStreamUrl?: () => Promise<string | null>
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -88,6 +92,7 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{
   (e: 'canvas-ref', ref: HTMLCanvasElement | null): void
   (e: 'canplay'): void
+  (e: 'hls-network-error'): void
 }>()
 
 const streamPoolStore = useStreamPoolStore()
@@ -122,6 +127,23 @@ const {
   protocol: props.protocol,
   enableDualProtocol: props.enableDualProtocol,
   autoStart: props.autoStart,
+  onHlsNetworkError: async () => {
+    // 优先用 props.refreshStreamUrl(同步返回新 url)。
+    // 旧 emit 路径保留作为 fallback — 父组件即使不传 refreshStreamUrl 也能收到通知自己处理。
+    if (props.refreshStreamUrl) {
+      try {
+        const newUrl = await props.refreshStreamUrl()
+        if (newUrl) {
+          emit('hls-network-error')
+          return newUrl
+        }
+      } catch {
+        // fall through to emit-only path
+      }
+    }
+    emit('hls-network-error')
+    return null
+  },
 })
 
 watch([() => props.initialOsdText, () => props.initialOsdLocation], () => {

@@ -9,6 +9,8 @@
           :protocol="currentProtocol"
           :loading="registry.streamLoading.value"
           :error="registry.streamError.value"
+          :refresh-stream-url="refreshStreamUrlSync"
+          @hls-network-error="refreshStreamOnNetworkError"
         />
       </div>
 
@@ -378,9 +380,72 @@ async function handleStartAll() {
 
 useVisibilityResume(() => dashboard.pause(), () => dashboard.resume())
 
+// HLS 致命网络错误(403 token 失效 / 404 设备未注册)回调:
+// 重新拉一次 flv_url 覆盖 streamMap → useCurrentStream 重新算 url → VideoPlayer url watch
+// 触发 switchUrl → 加载新 url。如果新拉仍是 404,清掉 streamMap 让 VideoStage 显示提示。
+async function refreshStreamOnNetworkError() {
+  await refreshStreamMap()
+}
+
+// 同步版本: HLS fatal NETWORK_ERROR 时 useVideoPlayer 会 await 这个返回值,
+// 必须返回**新 url**给 hlsInstance.loadSource(newUrl)。不能走 emit + 异步更新 streamMap 的反应链,
+// 因为反应链有时间差,等不到新 url 就放弃了。
+async function refreshStreamUrlSync(): Promise<string | null> {
+  const rid = parseRawChannelId(selectedChannel.value)
+  if (!rid) return null
+  try {
+    const info: any = await getDeviceFlvUrl(rid)
+    if (info?.flv_url) {
+      registry.streamMap.value = {
+        ...registry.streamMap.value,
+        [`device-${rid}`]: { url: info.flv_url, sourceType: info.source_type || 'stream' },
+      }
+      return info.flv_url
+    }
+    return null
+  } catch (err: any) {
+    console.warn('[MonitorWall] refreshStreamUrlSync 失败', err)
+    if (err?.response?.status === 404) {
+      const key = `device-${rid}`
+      if (registry.streamMap.value[key]) {
+        const next = { ...registry.streamMap.value }
+        delete next[key]
+        registry.streamMap.value = next
+      }
+    }
+    return null
+  }
+}
+
+async function refreshStreamMap() {
+  if (!selectedChannel.value) return
+  const rid = parseRawChannelId(selectedChannel.value)
+  if (!rid) return
+  try {
+    const info: any = await getDeviceFlvUrl(rid)
+    if (!info?.flv_url) return
+    registry.streamMap.value = {
+      ...registry.streamMap.value,
+      [`device-${rid}`]: { url: info.flv_url, sourceType: info.source_type || 'stream' },
+    }
+  } catch (err: any) {
+    console.warn('[MonitorWall] 网络错误回调刷新 streamMap 失败', err)
+    if (err?.response?.status === 404) {
+      const key = `device-${rid}`
+      if (registry.streamMap.value[key]) {
+        const next = { ...registry.streamMap.value }
+        delete next[key]
+        registry.streamMap.value = next
+      }
+    }
+  }
+}
+
 // traffic-api 每次 /stream/devices/register 都会**轮换 stream token**，
 // 批量注册时拿到的 flv_url 在用户真正点开设备时已失效（403 Invalid stream token）。
 // 每次 selectedChannel 变化 → 立刻向 traffic-api 现拉一次最新 flv_url 覆盖 streamMap。
+//
+// 404 同样清理 streamMap 条目（见下方 selectedAlgorithm watch 的注释）。
 import { watch as vueWatch } from 'vue'
 vueWatch(() => selectedChannel.value, async (rawId) => {
   if (!rawId) return
@@ -393,14 +458,26 @@ vueWatch(() => selectedChannel.value, async (rawId) => {
       ...registry.streamMap.value,
       [`device-${rid}`]: { url: info.flv_url, sourceType: info.source_type || 'stream' },
     }
-  } catch (err) {
+  } catch (err: any) {
     console.warn('[MonitorWall] 拉取最新 flv_url 失败', err)
+    if (err?.response?.status === 404) {
+      const key = `device-${rid}`
+      if (registry.streamMap.value[key]) {
+        const next = { ...registry.streamMap.value }
+        delete next[key]
+        registry.streamMap.value = next
+      }
+    }
   }
 })
 
 // 选算法本身不启动监测（"开始监测" 按钮才启动），但 hasAlgorithm 翻 true 后
 // useCurrentStream 会立刻读 streamMap.url — 那个 url 可能是 register 时拿的过期 token (403)。
 // 所以 selectedAlgorithm 变非空时也必须**立刻**拉一次最新 flv_url 覆盖 streamMap。
+//
+// 404 含义（后端 `/stream/device/{id}/flv`）：该设备在 traffic-api 端没有流注册，
+// 此时不要保留旧的(可能失效的) url，否则 VideoStage 会用死 url 喂 hls.js → 持续 404 → 黑屏。
+// 直接 delete 该 device 的 streamMap 条目 → useCurrentStream 返回 '' → VideoStage 显示"无法连接"。
 vueWatch(() => selectedAlgorithm.value, async (val) => {
   if (!val) return
   if (!selectedChannel.value) return
@@ -413,8 +490,16 @@ vueWatch(() => selectedAlgorithm.value, async (val) => {
       ...registry.streamMap.value,
       [`device-${rid}`]: { url: info.flv_url, sourceType: info.source_type || 'stream' },
     }
-  } catch (err) {
+  } catch (err: any) {
     console.warn('[MonitorWall] 选算法后拉取最新 flv_url 失败', err)
+    if (err?.response?.status === 404) {
+      const key = `device-${rid}`
+      if (registry.streamMap.value[key]) {
+        const next = { ...registry.streamMap.value }
+        delete next[key]
+        registry.streamMap.value = next
+      }
+    }
   }
 })
 

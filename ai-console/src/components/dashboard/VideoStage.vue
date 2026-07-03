@@ -11,6 +11,8 @@
           :url="videoUrl"
           :protocol="protocol"
           :initial-osd-location="device.name"
+          :refresh-stream-url="refreshStreamUrl"
+          @hls-network-error="emit('hls-network-error')"
         />
         <div v-else-if="loading" class="video-placeholder">
           <span>正在连接视频流...</span>
@@ -52,9 +54,14 @@ const props = defineProps<{
   protocol: string
   loading: boolean
   error: boolean
+  refreshStreamUrl?: () => Promise<string | null>
 }>()
 
 const isNativeVideo = computed(() => isLocalStream(props.sourceType, props.videoUrl))
+
+const emit = defineEmits<{
+  (e: 'hls-network-error'): void
+}>()
 </script>
 
 <style scoped>

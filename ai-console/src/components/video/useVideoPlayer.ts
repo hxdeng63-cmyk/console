@@ -4,11 +4,17 @@ import Hls from 'hls.js'
 
 export type Protocol = 'flv' | 'hls'
 
+// HLS fatal NETWORK_ERROR 时调用。返回新的 m3u8 url 给 hls.js 重新加载。
+// 用于处理 traffic-api 的 stream token 失效(403) 或设备未注册(404) 这两类场景。
+// 返回 null 表示无可用 url,player 进入 hasError 状态让 VideoStage 显示"无法连接"。
+export type RefreshStreamUrl = () => Promise<string | null>
+
 export interface UseVideoPlayerOptions {
   url: string
   protocol: Protocol
   enableDualProtocol?: boolean
   autoStart?: boolean
+  onHlsNetworkError?: RefreshStreamUrl
 }
 
 export function useVideoPlayer(options: UseVideoPlayerOptions) {
@@ -125,7 +131,24 @@ export function useVideoPlayer(options: UseVideoPlayerOptions) {
       hlsInstance.on(Hls.Events.ERROR, (_event, data) => {
         if (data.fatal) {
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-            hlsInstance?.startLoad()
+            // 之前只是 startLoad() 重试同一个死 url,在 traffic-api 轮换 token(403)
+            // 或设备未注册(404) 的情况下永远恢复不了。现在让父组件通过回调
+            // 拉一个新 url 重新 loadSource。如果回调返回 null,放弃并显示错误。
+            const refresh = options.onHlsNetworkError
+            if (refresh) {
+              void refresh().then((newUrl) => {
+                if (newUrl && hlsInstance) {
+                  hlsInstance.loadSource(newUrl)
+                } else {
+                  console.error('HLS fatal NETWORK_ERROR: no refresh url available', data)
+                  hasError.value = true
+                  errorMessage.value = '无法连接到视频流服务器'
+                  isLoading.value = false
+                }
+              })
+            } else {
+              hlsInstance?.startLoad()
+            }
           } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
             hlsInstance?.recoverMediaError()
           } else {

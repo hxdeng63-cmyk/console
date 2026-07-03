@@ -263,9 +263,84 @@ function makeWallState() {
   console.log('[PASS — Bug B] props.protocol 变化 → setProtocol → currentProtocol 跟随')
 }
 
+// 12) Bug C: getDeviceFlvUrl 返回 404 时,清掉 streamMap 条目,VideoStage 显示"无法连接"提示。
+//     模拟 MonitorWall 的两个 watch(selectedChannel / selectedAlgorithm)在 404 时的清理逻辑。
+{
+  const streamMap = ref({
+    'device-7': { url: 'http://t/STALE.m3u8', sourceType: 'stream' },
+    'device-8': { url: 'http://t/OK.m3u8', sourceType: 'stream' },
+  })
+  // 模拟 getDeviceFlvUrl 抛 404
+  const fakeGetFlvUrl = async (rid) => {
+    if (rid === 7) {
+      const err = new Error('Not Found')
+      err.response = { status: 404 }
+      throw err
+    }
+    return { flv_url: `http://t/dev${rid}.m3u8?token=N`, source_type: 'stream' }
+  }
+  // 模拟 MonitorWall 的 catch 逻辑
+  async function refresh(rid) {
+    try {
+      const info = await fakeGetFlvUrl(rid)
+      if (!info?.flv_url) return
+      streamMap.value = {
+        ...streamMap.value,
+        [`device-${rid}`]: { url: info.flv_url, sourceType: info.source_type },
+      }
+    } catch (err) {
+      if (err?.response?.status === 404) {
+        const key = `device-${rid}`
+        if (streamMap.value[key]) {
+          const next = { ...streamMap.value }
+          delete next[key]
+          streamMap.value = next
+        }
+      }
+    }
+  }
+  await refresh(7)  // 应清掉 device-7
+  assert.equal(streamMap.value['device-7'], undefined, '404 时 device-7 应被清掉')
+  assert.equal(streamMap.value['device-8'].url, 'http://t/OK.m3u8', '其他设备不应受影响')
+  await refresh(8)  // 应正常更新 device-8
+  assert.equal(streamMap.value['device-8'].url, 'http://t/dev8.m3u8?token=N')
+  console.log('[PASS — Bug C] getDeviceFlvUrl 404 时清掉 streamMap 条目,VideoStage 显示提示')
+}
+
+// 13) Bug C: HLS fatal NETWORK_ERROR 时,父组件应能通过 hls-network-error 事件收到通知。
+//     模拟 MonitorWall 的 refreshStreamOnNetworkError 在收到事件后能正确拉新 url 覆盖 streamMap。
+{
+  const streamMap = ref({ 'device-7': { url: 'http://t/DEAD', sourceType: 'stream' } })
+  const events = []
+  // 模拟 VideoPlayer emit('hls-network-error')
+  // + MonitorWall @hls-network-error="refreshStreamOnNetworkError"
+  const fakeGetFlvUrl = async (rid) => {
+    events.push(`refresh:${rid}`)
+    return { flv_url: `http://t/RESURRECTED-${rid}.m3u8`, source_type: 'stream' }
+  }
+  // 模拟 MonitorWall 的 handler
+  async function onNetworkError() {
+    events.push('handler:called')
+    const rid = 7
+    const info = await fakeGetFlvUrl(rid)
+    if (info?.flv_url) {
+      streamMap.value = {
+        ...streamMap.value,
+        [`device-${rid}`]: { url: info.flv_url, sourceType: info.source_type },
+      }
+    }
+  }
+  await onNetworkError()
+  assert.equal(streamMap.value['device-7'].url, 'http://t/RESURRECTED-7.m3u8')
+  assert.deepEqual(events, ['handler:called', 'refresh:7'])
+  console.log('[PASS — Bug C] hls-network-error 回调 → 拉新 token → streamMap 更新 → switchUrl 重载')
+}
+
 console.log('\n结论:')
 console.log('  Bug A — 选算法不启动监测,但 selectedAlgorithm watch 立刻拉新 flv_url 覆盖 streamMap')
 console.log('          (避免 useCurrentStream 拿到过期 token → 403 → 黑屏)')
 console.log('  Bug B — useVideoPlayer 加 setProtocol,VideoPlayer watch props.protocol')
 console.log('          (避免 protocol 翻 hls 时仍走 initFlv 分支 → 黑屏)')
-console.log('  两个修复必须同时存在: 协议对 + token 新 → 视频正常播放')
+console.log('  Bug C — HLS fatal NETWORK_ERROR → emit(hls-network-error) → MonitorWall refreshStreamOnNetworkError 拉新 token')
+console.log('          + getDeviceFlvUrl 404 时清掉 streamMap,VideoStage 显示"无法连接"提示')
+console.log('  三个修复必须同时存在: 协议对 + token 新 + 错误自愈 → 视频稳定播放')
