@@ -49,7 +49,10 @@ export function useTaskPolling() {
     void (async () => {
       try {
         const res: any = await deploymentApi.startStatus(startArgs!.deploymentId, startArgs!.taskId)
-        if (res.status === 'success') {
+        // 实际接口(ai-console 后端转发 traffic-api task status)返回的 status 是 'completed' / 'failed' / 'running',
+        // 不是单 deployment start 调用方曾约定的 'success'。与 pollStartAll 同源。
+        // 这里把 'success' 和 'completed' 都视为"就绪"以兼容老后端。
+        if (res.status === 'completed' || res.status === 'success') {
           ElMessage.success(`${startArgs!.moduleName} 识别已就绪`)
           startArgs!.onSuccess?.(startArgs!.deploymentId, startArgs!.taskId, startArgs!.moduleName)
           stopStartPoll()
@@ -62,10 +65,19 @@ export function useTaskPolling() {
           if (/状态冲突/.test(String(res.error || '')) && startAttempts < MAX_TASK_ATTEMPTS) {
             await new Promise(r => setTimeout(r, 2000))
             try {
+              // stream_map 的 key 必须是 device_id（traffic-api / _resolve_stream_id_and_device 都按 primary_device.id 查找）；
+              // 之前误写 deploymentId → 触发 "stream_map missing entry for device N"。
+              // 取一次 deployment 详情拿 device_ids[0]；取不到时 fallback 用 deploymentId。
+              let deviceKey: number = startArgs!.deploymentId
+              try {
+                const dep: any = await deploymentApi.get(startArgs!.deploymentId)
+                const ids: number[] = Array.isArray(dep?.device_ids) ? dep.device_ids : []
+                if (ids.length > 0 && typeof ids[0] === 'number') deviceKey = ids[0]
+              } catch { /* 拉不到就 fallback */ }
               const restart = await deploymentApi.start(startArgs!.deploymentId, {
                 module_name: startArgs!.moduleName,
                 video_path: 'auto',
-                stream_map: { [String(startArgs!.deploymentId)]: String(startArgs!.deploymentId) },
+                stream_map: { [String(deviceKey)]: String(deviceKey) },
                 config: { callback_url: '', push_interval: 1.0 },
               })
               if (restart?.task_id) {
