@@ -204,6 +204,9 @@ async def _execute_start_all_deployments(
         video_path = _to_traffic_api_video_path(video_path, device_id if device_id is not None else dep.id)
 
         # 调 start。payload 形态对齐单 deployment start（_run_deployment_start_task）。
+        # stream_map 的 key 必须是 device_id（traffic-api / 单 start 路径的 _resolve_stream_id_and_device 都按 primary_device.id 查找）；
+        # 之前误写成 str(dep.id)，导致 device 55 这类部署全部 400 "stream_map missing entry for device N"。
+        stream_map_key = str(device_id) if device_id is not None else str(dep.id)
         try:
             await asyncio.wait_for(
                 client.start(
@@ -211,7 +214,7 @@ async def _execute_start_all_deployments(
                     {
                         "module_name": dep.module_name,
                         "video_path": video_path,
-                        "stream_map": {str(dep.id): str(dep.id)},
+                        "stream_map": {stream_map_key: stream_map_key},
                         "config": {
                             "callback_url": settings.TRAFFIC_API_DEFAULT_CALLBACK_URL or "",
                             "push_interval": 1.0,
@@ -601,6 +604,7 @@ async def _run_deployment_start_task(
                 "log_path": log_path,
             }
             result = await client.start(deployment.id, payload)
+            logging.warning("DEBUG: client.start result for deployment %s: %r", deployment.id, result)
 
             # callback_token 复用 deployment_token 字段（String(64)；
             # traffic-api 文档示例 37 字符 "cbk_xxx"，有 27 字符 headroom）。

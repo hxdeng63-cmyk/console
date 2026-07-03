@@ -1,5 +1,6 @@
 import os
 import sys
+from pathlib import Path
 
 from pydantic_settings import BaseSettings
 
@@ -56,7 +57,8 @@ class Settings(BaseSettings):
     TRAFFIC_API_REQUEST_TIMEOUT: float = 30.0
 
     class Config:
-        env_file = ".env"
+        # 用 __file__ 解析绝对路径,避免 uvicorn 启动时 cwd 不是 backend 目录而读不到 .env。
+        env_file = str(Path(__file__).resolve().parents[2] / ".env")
 
 
 def _enforce_real_secrets(settings: Settings) -> None:

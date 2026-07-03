@@ -344,11 +344,16 @@ def _empty_deployment_context() -> _EmptyDeploymentContext:
     return _EmptyDeploymentContext()
 
 
-def _verify_traffic_api_token(authorization: Optional[str]) -> None:
-    """鉴权 traffic-api 推送：与 settings.TRAFFIC_API_AUTH_TOKEN 比对。
+async def _verify_traffic_api_token(authorization: Optional[str], db: AsyncSession) -> None:
+    """鉴权 traffic-api 推送：接受任一种 token。
 
-    注意：本端点不再校验 deployment.deployment_token。
-    部署级 callback_token 由 traffic-api 子进程 → 用户后端使用，本端点不感知。
+    1. 全局 token `settings.TRAFFIC_API_AUTH_TOKEN`（管理面鉴权）
+    2. 任一 active deployment 的 `deployment.deployment_token`（traffic-api 子进程推 callback 用的 `cbk_` token）
+
+    traffic-api /start 时为每个 deployment 生成独立的 `cbk_<random>` token（见
+    deployment_service.py:41-43 / api_service:195-198）并通过 `result["callback_token"]` 返回,
+    ai-console 在 deployments.py:608-614 写入 deployment.deployment_token。traffic-api
+    子进程随后用这个 `cbk_` token 推 callback — 所以 ingest 必须接受它,不能只看全局 token。
     """
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(
@@ -356,12 +361,28 @@ def _verify_traffic_api_token(authorization: Optional[str]) -> None:
             detail="Missing or invalid Authorization header",
         )
     token = authorization[len("Bearer "):].strip()
-    expected = settings.TRAFFIC_API_AUTH_TOKEN
-    if not expected or token != expected:
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid traffic-api token",
+            detail="Missing bearer token",
         )
+    # 1) 全局 token
+    expected = settings.TRAFFIC_API_AUTH_TOKEN
+    if expected and token == expected:
+        return
+    # 2) 任一 active deployment 的 callback token
+    result = await db.execute(
+        select(Deployment.deployment_token).where(
+            Deployment.deployment_token == token,
+            Deployment.deleted_at.is_(None),
+        )
+    )
+    if result.scalar_one_or_none() is not None:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid traffic-api token",
+    )
 
 
 async def _resolve_device_id(
@@ -467,7 +488,7 @@ async def ingest_algorithm_event(
     不再校验 deployment_token（traffic-api / 用户后端用设备面 token 推）。
     device_id 由 stream_id（==str(device_id)）解析，强约束（API_SERVICE(1).md L130-133）。
     """
-    _verify_traffic_api_token(authorization)
+    await _verify_traffic_api_token(authorization, db)
 
     stream_id = payload.get("stream_id")
     if not stream_id:
