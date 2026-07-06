@@ -42,7 +42,7 @@
             class="detail-value"
             :class="alarm?.isCompliant === true ? 'text-success' : alarm?.isCompliant === false ? 'text-danger' : 'text-secondary'"
           >
-            {{ alarm?.isCompliant === true ? '合规' : alarm?.isCompliant === false ? '不合规' : '未知' }}
+            {{ formatCompliance(alarm?.isCompliant) }}
           </span>
         </div>
         <div class="detail-row">
@@ -61,6 +61,7 @@
 <script setup lang="ts">
 import type { AlarmItem } from '@/types/alarm'
 import { statusText, statusTagType } from '@/constants/processStatus'
+import { formatCompliance } from '@/utils/compliance'
 
 defineProps<{
   modelValue: boolean

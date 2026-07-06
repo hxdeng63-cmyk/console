@@ -25,7 +25,7 @@
               class="event-status"
               :class="event.isCompliant === true ? 'compliant' : event.isCompliant === false ? 'non-compliant' : 'unknown'"
             >
-              {{ event.isCompliant === true ? '合规' : event.isCompliant === false ? '不合规' : '未知' }}
+              {{ formatCompliance(event.isCompliant) }}
             </span>
             <span class="event-process-status">{{ statusText(event.processStatus) }}</span>
           </div>
@@ -39,6 +39,7 @@
 <script setup lang="ts">
 import type { AlarmItem } from '@/types/alarm'
 import { statusText } from '@/constants/processStatus'
+import { formatCompliance } from '@/utils/compliance'
 
 defineProps<{
   events: AlarmItem[]

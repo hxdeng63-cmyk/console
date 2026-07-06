@@ -161,6 +161,7 @@ async def list_algorithm_events(
                 else event.created_at.isoformat()
             ),
             "isCompliant": "是" if event.is_compliant is True else ("否" if event.is_compliant is False else "未知"),
+            "is_compliant": event.is_compliant if isinstance(event.is_compliant, bool) else None,
             "imageUrl": ensure_valid_media_url(event.image_url) or "",
             "videoUrl": ensure_valid_media_url(event.video_url) or "",
         })

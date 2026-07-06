@@ -135,7 +135,7 @@
           </div>
           <div class="info-row">
             <span class="label">是否合规：</span>
-            <span class="value" :class="item.isCompliant === '是' ? 'compliance-yes' : 'compliance-no'">{{ item.isCompliant }}</span>
+            <span class="value" :class="formatCompliance(item.isCompliant) === '合规' ? 'compliance-yes' : 'compliance-no'">{{ formatCompliance(item.isCompliant) }}</span>
           </div>
           <div class="info-row capture-time">
             <span class="label">抓拍时间：</span>
@@ -199,8 +199,8 @@
                 <span class="label">是否合规：</span>
                 <span
                   class="value"
-                  :class="currentRecord?.isCompliant === '是' ? 'compliance-yes' : 'compliance-no'"
-                >{{ currentRecord?.isCompliant }}</span>
+                  :class="formatCompliance(currentRecord?.isCompliant) === '合规' ? 'compliance-yes' : 'compliance-no'"
+                >{{ formatCompliance(currentRecord?.isCompliant) }}</span>
               </div>
               <div class="info-item">
                 <span class="label">处理状态：</span>
@@ -325,6 +325,7 @@ import { getAlgorithms } from '@/api/algorithms'
 import { getEventTypes } from '@/api/event-types'
 import { getEventTypeDisplayName } from '@/utils/eventType'
 import { formatDateTime } from '@/utils/date'
+import { formatCompliance } from '@/utils/compliance'
 
 interface EventItem {
   id: number

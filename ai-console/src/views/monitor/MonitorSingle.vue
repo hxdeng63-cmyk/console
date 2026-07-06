@@ -140,7 +140,7 @@
             <div class="alarm-location">{{ alarm.deviceName }} {{ alarm.location ? '· ' + alarm.location : '' }}</div>
             <div class="alarm-tags">
               <span class="alarm-status" :class="alarm.isCompliant === true ? 'compliant' : alarm.isCompliant === false ? 'non-compliant' : 'unknown'">
-                {{ alarm.isCompliant === true ? '合规' : alarm.isCompliant === false ? '不合规' : '未知' }}
+                {{ formatCompliance(alarm.isCompliant) }}
               </span>
               <span class="alarm-process-status">{{ statusText(alarm.processStatus) }}</span>
             </div>
@@ -193,7 +193,7 @@
               class="detail-value"
               :class="selectedAlarm?.isCompliant === true ? 'text-success' : selectedAlarm?.isCompliant === false ? 'text-danger' : 'text-secondary'"
             >
-              {{ selectedAlarm?.isCompliant === true ? '合规' : selectedAlarm?.isCompliant === false ? '不合规' : '未知' }}
+              {{ formatCompliance(selectedAlarm?.isCompliant) }}
             </span>
           </div>
           <div class="detail-row">
@@ -242,6 +242,7 @@ import { getList as getWarningEvents } from '@/api/warning-events'
 import { registerDevicesAsync, getRegisterDevicesStatus, getDeviceFlvUrl } from '@/api/stream'
 import { getEventTypeDisplayName } from '@/utils/eventType'
 import { formatDateTime } from '@/utils/date'
+import { formatCompliance } from '@/utils/compliance'
 import type { DeviceNode } from '@/components/device-tree/useDeviceTree'
 import type { ComponentPublicInstance } from 'vue'
 
