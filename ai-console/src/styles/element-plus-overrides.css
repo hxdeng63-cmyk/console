@@ -749,3 +749,52 @@
   text-shadow: none !important;
   color: #000000 !important;
 }
+
+/* ===== el-cascader 暗色主题覆盖（修复 hover 白底） ===== */
+.el-cascader-panel {
+  background: rgba(0, 20, 50, 0.98) !important;
+  border: 1px solid rgba(0, 229, 255, 0.25) !important;
+  box-shadow: 0 0 25px rgba(0, 229, 255, 0.15), 0 8px 32px rgba(0, 0, 0, 0.4) !important;
+  color: rgba(180, 210, 235, 0.9);
+}
+
+.el-cascader-menu {
+  border-right-color: rgba(0, 229, 255, 0.12) !important;
+}
+
+.el-cascader-menu__item,
+.el-cascader-node {
+  color: rgba(180, 210, 235, 0.9) !important;
+  background: transparent !important;
+}
+
+.el-cascader-menu__item:hover,
+.el-cascader-node:hover,
+.el-cascader-node.is-hovering {
+  background: rgba(0, 229, 255, 0.1) !important;
+}
+
+.el-cascader-node.is-active {
+  color: #00E5FF !important;
+  font-weight: 600;
+}
+
+.el-cascader-node__prefix,
+.el-cascader-node__postfix {
+  color: rgba(0, 229, 255, 0.6) !important;
+}
+
+.el-cascader__suggestion-item.is-checked,
+.el-cascader__suggestion-item:hover {
+  background: rgba(0, 229, 255, 0.15) !important;
+  color: #00E5FF !important;
+}
+
+.el-cascader__tags-input {
+  color: rgba(180, 210, 235, 0.9) !important;
+}
+
+/* cascader 内部 input placeholder 暗色 */
+.el-cascader .el-input__inner::placeholder {
+  color: rgba(180, 210, 235, 0.5) !important;
+}
