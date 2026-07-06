@@ -391,7 +391,7 @@ const fetchEvents = async () => {
       eventDetail: item.event_detail || item.eventDetail || '',
       processStatus: item.process_status || item.processStatus || '未处置',
       reportTime: item.report_time || item.reportTime || item.created_at || '',
-      isCompliant: item.is_compliant !== undefined ? (item.is_compliant ? '是' : '否') : (item.isCompliant || '是'),
+      isCompliant: item.is_compliant !== undefined ? (item.is_compliant ? '是' : '否') : (item.isCompliant || '否'),
       imageUrl: item.image_url || item.imageUrl || '',
       videoUrl: item.video_url || item.videoUrl || ''
     }))
