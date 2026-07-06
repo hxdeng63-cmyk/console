@@ -77,7 +77,11 @@
           <el-tag :type="getStatusType(row.processStatus)" size="small">{{ row.processStatus }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="reportTime" label="上报时间" width="155" align="center" />
+      <el-table-column label="上报时间" width="180" align="center">
+        <template #default="{ row }">
+          <span class="value">{{ formatDateTime(row.reportTime) }}</span>
+        </template>
+      </el-table-column>
       <el-table-column label="操作" width="280" fixed="right" align="center">
         <template #default="{ row }">
           <el-button class="action-edit" size="small" @click="handleDetail(row)">详情查看</el-button>
@@ -115,7 +119,7 @@
           </div>
           <div class="info-row capture-time">
             <span class="label">抓拍时间：</span>
-            <span class="value">{{ item.reportTime }}</span>
+            <span class="value">{{ formatDateTime(item.reportTime) }}</span>
           </div>
         </div>
       </div>
@@ -184,7 +188,7 @@
               </div>
               <div class="info-item">
                 <span class="label">上报时间：</span>
-                <span class="value">{{ currentRecord?.reportTime }}</span>
+                <span class="value">{{ formatDateTime(currentRecord?.reportTime) }}</span>
               </div>
             </div>
           </div>
@@ -299,6 +303,7 @@ import { getRegionsByCompany } from '@/api/company-regions'
 import { getAlgorithms } from '@/api/algorithms'
 import { getEventTypes } from '@/api/event-types'
 import { getEventTypeDisplayName } from '@/utils/eventType'
+import { formatDateTime } from '@/utils/date'
 
 interface EventItem {
   id: number
