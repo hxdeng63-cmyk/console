@@ -119,6 +119,7 @@ import {
 } from '@/api/event-stats'
 import { useRegions } from '@/composables/useRegions'
 import { getRegionsByCompany } from '@/api/company-regions'
+import { getEventTypeDisplayName } from '@/utils/eventType'
 
 echarts.use([BarChart, PieChart, LineChart, GaugeChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, CanvasRenderer])
 
@@ -379,7 +380,7 @@ const initCenterChart = () => {
     grid: { left: '3%', right: '3%', top: '15%', bottom: '15%' },
     xAxis: {
       type: 'category',
-      data: sceneStats.value.categories,
+      data: sceneStats.value.categories.map(getEventTypeDisplayName),
       axisLine: { lineStyle: { color: chartColors.border } },
       axisLabel: { color: chartColors.textSecondary, fontSize: 10, rotate: 30 }
     },
@@ -406,11 +407,13 @@ const initCenterChart = () => {
 
   // 点击柱子切换右下方趋势图
   centerChart.on('click', (params: any) => {
-    if (params.name) {
-      selectedEventType.value = params.name
-      const item = sceneStats.value.items.find((i: { id: number; name: string; value: number }) => i.name === params.name)
-      filterForm.event_type_id = item?.id || null
-      fetchEventTrend().then(() => updateParkingChart())
+    if (typeof params.dataIndex === 'number') {
+      const item = sceneStats.value.items[params.dataIndex]
+      if (item) {
+        selectedEventType.value = getEventTypeDisplayName(item.name)
+        filterForm.event_type_id = item.id
+        fetchEventTrend().then(() => updateParkingChart())
+      }
     }
   })
 }
