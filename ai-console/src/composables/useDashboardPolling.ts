@@ -65,7 +65,7 @@ export function useDashboardPolling(channel: Ref<string>) {
         level: item.level || 'info',
         handled: item.handled ?? false,
         processStatus: item.status || 'pending',
-        isCompliant: item.isCompliant ?? null,
+        isCompliant: item.isCompliant ?? false,
         imageUrl: item.imageUrl || '',
         videoUrl: item.videoUrl || '',
         captureTime: item.captureTime || '',

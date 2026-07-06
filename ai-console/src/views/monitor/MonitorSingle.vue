@@ -389,7 +389,7 @@ const fetchWarningEvents = async () => {
       processStatus: item.status || 'pending',
       imageUrl: item.imageUrl || '',
       videoUrl: item.videoUrl || '',
-      isCompliant: item.isCompliant,
+      isCompliant: item.isCompliant ?? false,
       level: item.level || 'low',
     }))
   } catch (error) {
