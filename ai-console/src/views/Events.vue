@@ -558,20 +558,9 @@ const onCompanyChange = async () => {
   if (!company) return
   try {
     const res: any = await getRegionTree({ org_id: company.id })
+    // 后端 /regions/tree 直接返回 roots 数组（已按 parent_id 构建好嵌套）
     const data = res.data || res
-    const items = (data.items || data || []) as any[]
-    // 按 parent_id 构建树（regions.py 端点已返回树根；保险起见再做一遍）
-    const map: Record<number, any> = {}
-    items.forEach(r => { map[r.id] = { ...r, children: [] } })
-    const roots: any[] = []
-    items.forEach(r => {
-      if (r.parent_id && map[r.parent_id]) {
-        map[r.parent_id].children.push(map[r.id])
-      } else {
-        roots.push(map[r.id])
-      }
-    })
-    regionTree.value = roots
+    regionTree.value = Array.isArray(data) ? data : (data.items || [])
   } catch (e) {
     console.error('获取区域树失败:', e)
   }
