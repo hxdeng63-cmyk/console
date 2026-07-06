@@ -135,7 +135,7 @@
           </div>
           <div class="info-row">
             <span class="label">是否合规：</span>
-            <span class="value" :class="formatCompliance(item.isCompliant) === '合规' ? 'compliance-yes' : 'compliance-no'">{{ formatCompliance(item.isCompliant) }}</span>
+            <span class="value" :class="formatCompliance(item.is_compliant) === '合规' ? 'compliance-yes' : 'compliance-no'">{{ formatCompliance(item.is_compliant) }}</span>
           </div>
           <div class="info-row capture-time">
             <span class="label">抓拍时间：</span>
@@ -199,8 +199,8 @@
                 <span class="label">是否合规：</span>
                 <span
                   class="value"
-                  :class="formatCompliance(currentRecord?.isCompliant) === '合规' ? 'compliance-yes' : 'compliance-no'"
-                >{{ formatCompliance(currentRecord?.isCompliant) }}</span>
+                  :class="formatCompliance(currentRecord?.is_compliant) === '合规' ? 'compliance-yes' : 'compliance-no'"
+                >{{ formatCompliance(currentRecord?.is_compliant) }}</span>
               </div>
               <div class="info-item">
                 <span class="label">处理状态：</span>
@@ -338,6 +338,7 @@ interface EventItem {
   processStatus: string
   reportTime: string
   isCompliant: string
+  is_compliant?: boolean | null
   imageUrl: string
   videoUrl: string
 }
@@ -443,7 +444,7 @@ const fetchEvents = async () => {
       eventDetail: item.event_detail || item.eventDetail || '',
       processStatus: item.process_status || item.processStatus || '未处置',
       reportTime: item.report_time || item.reportTime || item.created_at || '',
-      isCompliant: item.is_compliant !== undefined ? (item.is_compliant ? '是' : '否') : (item.isCompliant || '否'),
+      is_compliant: item.is_compliant ?? false,
       imageUrl: item.image_url || item.imageUrl || '',
       videoUrl: item.video_url || item.videoUrl || ''
     }))
