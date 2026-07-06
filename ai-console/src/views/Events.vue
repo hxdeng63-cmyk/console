@@ -319,7 +319,7 @@ import { ref, computed, reactive, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { getDeviceGroupTree } from '@/api/device-groups'
-import { getRegionTree } from '@/api/regions'
+import { getRegionTree, getFullRegionTree } from '@/api/regions'
 import { getDevices } from '@/api/devices'
 import { getAlgorithms } from '@/api/algorithms'
 import { getEventTypes } from '@/api/event-types'
@@ -360,17 +360,31 @@ const searchForm = reactive({
   endTime: ''
 })
 
-const regionTree = ref<any[]>([])
+const regionTree = ref<any[]>([])  // cascader 用的单公司大区/小区树
+const fullRegionTree = ref<any[]>([])  // 全公司区域树（公司→大区→小区），用于 regionPathMap
 const regionDevices = ref<any[]>([])
+
+const loadFullRegionTree = async () => {
+  try {
+    const res: any = await getFullRegionTree()
+    fullRegionTree.value = Array.isArray(res) ? res : (res.data || [])
+  } catch (e) {
+    console.error('加载全公司区域树失败:', e)
+  }
+}
 
 // regionName → '大区 / 小区' 路径映射。表格/卡片/详情用，避免每行单独 walk 整棵树
 const regionPathMap = computed<Record<string, string>>(() => {
   const map: Record<string, string> = {}
-  for (const big of regionTree.value) {
-    if (!big) continue
-    map[big.name] = big.name
-    for (const small of (big.children || [])) {
-      map[small.name] = `${big.name} / ${small.name}`
+  // fullRegionTree 是 [公司 → 大区 → 小区] 嵌套，跳过公司层
+  for (const company of fullRegionTree.value) {
+    if (!company) continue
+    for (const big of (company.children || [])) {
+      if (!big) continue
+      map[big.name] = big.name
+      for (const small of (big.children || [])) {
+        map[small.name] = `${big.name} / ${small.name}`
+      }
     }
   }
   return map
@@ -486,6 +500,7 @@ const loadEventTypes = async (algorithmId: number) => {
 
 onMounted(() => {
   loadTreeData()
+  loadFullRegionTree()  // 加载全公司区域树，让表格未选公司时也能显示路径
   loadAlgorithms().then(() => fetchEvents())
 })
 
