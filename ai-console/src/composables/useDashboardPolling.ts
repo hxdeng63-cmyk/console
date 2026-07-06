@@ -12,6 +12,7 @@ import { deploymentApi } from '@/api/deployment'
 import type { AlarmItem } from '@/types/alarm'
 import { roadLevelFromJam } from '@/constants/roadLevel'
 import { getEventTypeDisplayName } from '@/utils/eventType'
+import { formatDateTime } from '@/utils/date'
 
 export interface DashboardData {
   avgSpeed: string
@@ -55,7 +56,7 @@ export function useDashboardPolling(channel: Ref<string>) {
       const res: any = await getWarningEvents(params)
       alarmList.value = (res.items || []).map((item: any) => ({
         id: item.id,
-        time: item.time || item.captureTime?.split(' ')[1] || '00:00:00',
+        time: formatDateTime(item.time || item.captureTime),
         type: getEventTypeDisplayName(item.eventType || item.eventTypeName),
         device: item.device || item.cameraName || '',
         deviceName: item.cameraName || item.device || '',

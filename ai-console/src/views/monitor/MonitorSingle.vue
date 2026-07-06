@@ -241,6 +241,7 @@ import { getDeviceGroupTree } from '@/api/device-groups'
 import { getList as getWarningEvents } from '@/api/warning-events'
 import { registerDevicesAsync, getRegisterDevicesStatus, getDeviceFlvUrl } from '@/api/stream'
 import { getEventTypeDisplayName } from '@/utils/eventType'
+import { formatDateTime } from '@/utils/date'
 import type { DeviceNode } from '@/components/device-tree/useDeviceTree'
 import type { ComponentPublicInstance } from 'vue'
 
@@ -380,7 +381,7 @@ const fetchWarningEvents = async () => {
     const items = res.items || []
     warningEvents.value = items.map((item: any) => ({
       id: item.id,
-      time: item.time || '',
+      time: formatDateTime(item.time),
       type: item.eventType ? getEventTypeDisplayName(item.eventType) : (item.eventDetail || '未知事件'),
       eventDetail: item.eventDetail || '',
       deviceName: item.cameraName || '',
