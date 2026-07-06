@@ -323,7 +323,7 @@ declare module '@/api/regions' {
   export const createRegion: (data: any) => Promise<any>
   export const updateRegion: (id: any, data: any) => Promise<any>
   export const deleteRegion: (id: any) => Promise<any>
-  export const getRegionTree: () => Promise<any>
+  export const getRegionTree: (params?: any) => Promise<any>
   export const getFullRegionTree: () => Promise<any>
   export const getRegionDevices: (id: any, params?: any) => Promise<any>
 }
@@ -490,7 +490,7 @@ declare module '@/api/regions.js' {
   export const createRegion: (data: any) => Promise<any>
   export const updateRegion: (id: any, data: any) => Promise<any>
   export const deleteRegion: (id: any) => Promise<any>
-  export const getRegionTree: () => Promise<any>
+  export const getRegionTree: (params?: any) => Promise<any>
   export const getFullRegionTree: () => Promise<any>
   export const getRegionDevices: (id: any, params?: any) => Promise<any>
 }

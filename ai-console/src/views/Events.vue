@@ -6,9 +6,15 @@
         <el-select v-model="searchForm.companyName" placeholder="公司名称" style="width: 130px" clearable @change="onCompanyChange">
           <el-option v-for="c in companies" :key="c.id" :label="c.name" :value="c.name" />
         </el-select>
-        <el-select v-model="searchForm.regionName" :placeholder="searchForm.companyName ? '区域' : '请先选择公司'" style="width: 120px" clearable :disabled="!searchForm.companyName">
-          <el-option v-for="r in companyRegions" :key="r.id" :label="r.name" :value="r.name" />
-        </el-select>
+        <el-cascader
+          v-model="searchForm.regionId"
+          :options="regionTree"
+          :props="{ value: 'id', label: 'name', children: 'children', emitPath: false }"
+          :placeholder="searchForm.companyName ? '区域（大区/小区）' : '请先选择公司'"
+          style="width: 180px"
+          clearable
+          :disabled="!searchForm.companyName"
+        />
         <el-select v-model="searchForm.algorithmName" placeholder="算法" style="width: 180px" clearable>
           <el-option
             v-for="algo in algorithmOptions"
@@ -25,7 +31,17 @@
             :value="type.value"
           />
         </el-select>
-        <el-input v-model="searchForm.deviceName" placeholder="设备名称" style="width: 160px" clearable />
+        <el-select
+          v-model="searchForm.deviceId"
+          placeholder="设备名称"
+          style="width: 180px"
+          clearable
+          filterable
+          :disabled="!searchForm.regionId"
+          no-data-text="请先选择区域"
+        >
+          <el-option v-for="d in regionDevices" :key="d.id" :label="d.name" :value="d.id" />
+        </el-select>
       </div>
     </div>
 
@@ -295,11 +311,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive, onMounted } from 'vue'
+import { ref, computed, reactive, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { getDeviceGroupTree } from '@/api/device-groups'
-import { getRegionsByCompany } from '@/api/company-regions'
+import { getRegionTree } from '@/api/regions'
+import { getDevices } from '@/api/devices'
 import { getAlgorithms } from '@/api/algorithms'
 import { getEventTypes } from '@/api/event-types'
 import { getEventTypeDisplayName } from '@/utils/eventType'
@@ -328,15 +345,19 @@ const algorithmOptions = ref<{ label: string; value: string }[]>([])
 
 const searchForm = reactive({
   companyName: '',
+  regionId: null as number | null,
   regionName: '',
   algorithmName: '',
   eventType: '',
-  deviceName: '',
+  deviceId: null as number | null,
   isCompliant: '',
   processStatus: '',
   startTime: '',
   endTime: ''
 })
+
+const regionTree = ref<any[]>([])
+const regionDevices = ref<any[]>([])
 
 const viewMode = ref('list')
 const currentPage = ref(1)
@@ -344,7 +365,6 @@ const pageSize = ref(10)
 const totalCount = ref(0)
 
 const companies = ref<any[]>([])
-const companyRegions = ref<any[]>([])
 
 function flattenTree(nodes: any[]): any[] {
   const result: any[] = []
@@ -371,7 +391,7 @@ const fetchEvents = async () => {
     if (searchForm.regionName) params.regionName = searchForm.regionName
     if (searchForm.algorithmName) params.algorithmName = searchForm.algorithmName
     if (searchForm.eventType) params.eventType = searchForm.eventType
-    if (searchForm.deviceName) params.deviceName = searchForm.deviceName
+    if (searchForm.deviceId) params.deviceId = searchForm.deviceId
     if (searchForm.isCompliant) params.isCompliant = searchForm.isCompliant
     if (searchForm.processStatus) params.processStatus = searchForm.processStatus
     if (searchForm.startTime) params.startTime = new Date(searchForm.startTime).toISOString()
@@ -528,28 +548,70 @@ const handleSearch = () => {
 }
 
 const onCompanyChange = async () => {
+  searchForm.regionId = null
   searchForm.regionName = ''
-  companyRegions.value = []
+  searchForm.deviceId = null
+  regionTree.value = []
+  regionDevices.value = []
   if (!searchForm.companyName) return
   const company = companies.value.find((c: any) => c.name === searchForm.companyName)
   if (!company) return
   try {
-    const res = await getRegionsByCompany(company.id)
+    const res: any = await getRegionTree({ org_id: company.id })
     const data = res.data || res
-    companyRegions.value = (data.items || []).map((item: any) => ({
-      id: item.id,
-      name: item.name
-    }))
+    const items = (data.items || data || []) as any[]
+    // 按 parent_id 构建树（regions.py 端点已返回树根；保险起见再做一遍）
+    const map: Record<number, any> = {}
+    items.forEach(r => { map[r.id] = { ...r, children: [] } })
+    const roots: any[] = []
+    items.forEach(r => {
+      if (r.parent_id && map[r.parent_id]) {
+        map[r.parent_id].children.push(map[r.id])
+      } else {
+        roots.push(map[r.id])
+      }
+    })
+    regionTree.value = roots
   } catch (e) {
-    console.error('获取公司区域失败:', e)
+    console.error('获取区域树失败:', e)
   }
 }
 
+const loadDevicesByRegion = async (regionId: number | null) => {
+  regionDevices.value = []
+  if (!regionId) return
+  try {
+    const res: any = await getDevices({ region_id: regionId, page_size: 100 })
+    const data = res.data || res
+    regionDevices.value = (data.items || []).map((d: any) => ({ id: d.id, name: d.name }))
+  } catch (e) {
+    console.error('获取设备列表失败:', e)
+  }
+}
+
+// cascader 选了具体 region 后，刷新设备下拉 + 同步 regionName（供后端 _resolve_region_ids）
+watch(() => searchForm.regionId, (newId) => {
+  searchForm.deviceId = null
+  loadDevicesByRegion(newId)
+  // walk regionTree 找 name
+  let name = ''
+  const walk = (nodes: any[]): boolean => {
+    for (const n of nodes) {
+      if (n.id === newId) { name = n.name; return true }
+      if (n.children && walk(n.children)) return true
+    }
+    return false
+  }
+  walk(regionTree.value)
+  searchForm.regionName = name
+})
+
 const handleReset = () => {
   Object.keys(searchForm).forEach(key => {
-    ;(searchForm as any)[key] = ''
+    ;(searchForm as any)[key] = (typeof (searchForm as any)[key] === 'number') ? null : ''
   })
-  companyRegions.value = []
+  regionTree.value = []
+  regionDevices.value = []
   currentPage.value = 1
   if (trafficAlgorithm.value) {
     searchForm.algorithmName = trafficAlgorithm.value.name
