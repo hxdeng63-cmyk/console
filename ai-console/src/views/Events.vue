@@ -80,7 +80,11 @@
       <!-- 列表模式表格 -->
       <el-table v-if="viewMode === 'list'" :data="pagedData" border stripe v-loading="loading">
       <el-table-column prop="companyName" label="公司名称" width="100" align="center" />
-      <el-table-column prop="regionName" label="区域" width="80" align="center" />
+      <el-table-column label="区域" min-width="120" align="center">
+        <template #default="{ row }">
+          <span>{{ regionPathMap[row.regionName] || row.regionName }}</span>
+        </template>
+      </el-table-column>
       <el-table-column prop="deviceName" label="设备名称" min-width="180" show-overflow-tooltip />
       <el-table-column prop="algorithmName" label="算法" width="100" align="center" />
       <el-table-column prop="eventTypeName" label="事件" width="110" align="center">
@@ -123,7 +127,7 @@
           </div>
           <div class="info-row">
             <span class="label">区域名称：</span>
-            <span class="value">{{ item.regionName }}</span>
+            <span class="value">{{ regionPathMap[item.regionName] || item.regionName }}</span>
           </div>
           <div class="info-row">
             <span class="label">事件类型：</span>
@@ -173,7 +177,7 @@
               </div>
               <div class="info-item">
                 <span class="label">区域名称：</span>
-                <span class="value">{{ currentRecord?.regionName }}</span>
+                <span class="value">{{ regionPathMap[currentRecord?.regionName] || currentRecord?.regionName }}</span>
               </div>
               <div class="info-item">
                 <span class="label">设备名称：</span>
@@ -358,6 +362,19 @@ const searchForm = reactive({
 
 const regionTree = ref<any[]>([])
 const regionDevices = ref<any[]>([])
+
+// regionName → '大区 / 小区' 路径映射。表格/卡片/详情用，避免每行单独 walk 整棵树
+const regionPathMap = computed<Record<string, string>>(() => {
+  const map: Record<string, string> = {}
+  for (const big of regionTree.value) {
+    if (!big) continue
+    map[big.name] = big.name
+    for (const small of (big.children || [])) {
+      map[small.name] = `${big.name} / ${small.name}`
+    }
+  }
+  return map
+})
 
 const viewMode = ref('list')
 const currentPage = ref(1)
