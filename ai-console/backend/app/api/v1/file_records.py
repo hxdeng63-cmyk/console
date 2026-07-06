@@ -109,7 +109,12 @@ async def get_file_tree(
     source_type: Optional[str] = None,
     db: AsyncSession = Depends(get_db)
 ):
-    """Return file records grouped by org -> region -> event type -> file as a tree."""
+    """Return file records grouped by org -> region (parent-child tree) -> event type -> file.
+
+    先加载所有 Org / Region 构建完整区域父子树（与 /device-groups/tree 同构），
+    再把 file 挂到对应叶子 region 下；空 region 也会显示（与 events 页面行为一致）。
+    """
+    from collections import defaultdict
     from app.models.device import Device
     from app.models.region import Region
     from app.models.organization import Organization
@@ -118,6 +123,38 @@ async def get_file_tree(
 
     _validate_source_type(source_type)
 
+    # 1. 加载所有公司（level=1）
+    org_query = select(Organization).where(
+        Organization.level == 1,
+        Organization.deleted_at.is_(None)
+    ).order_by(Organization.sort)
+    orgs = (await db.execute(org_query)).scalars().all()
+
+    # 2. 加载所有区域
+    region_query = select(Region).where(Region.deleted_at.is_(None)).order_by(Region.sort)
+    all_regions = (await db.execute(region_query)).scalars().all()
+
+    # 3. 按 parent_id 构建区域树
+    region_map: dict = {}
+    for r in all_regions:
+        region_map[r.id] = {
+            "id": r.id,
+            "name": r.name,
+            "code": r.code,
+            "level": r.level,
+            "org_id": r.org_id,
+            "isRegion": True,
+            "children": [],
+        }
+    region_roots: list = []
+    for r in all_regions:
+        node = region_map[r.id]
+        if r.parent_id and r.parent_id in region_map:
+            region_map[r.parent_id]["children"].append(node)
+        else:
+            region_roots.append(node)
+
+    # 4. JOIN file records（保留原 query 结构）
     query = (
         select(File, Device, Region, Organization, WarningEvent, EventType)
         .outerjoin(Device, File.device_id == Device.id)
@@ -129,27 +166,18 @@ async def get_file_tree(
         .order_by(File.created_at.desc())
         .limit(2000)
     )
-
     if source_type:
         query = query.where(File.source_type == source_type)
+    rows = (await db.execute(query)).all()
 
-    result = await db.execute(query)
-    rows = result.all()
+    # 5. 聚合 file：org_id -> region_id -> {event_type_name -> [file nodes]}
+    files_by_org_region: dict = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+    # 退化路径：org 或 region 缺失的 file 单独聚合
+    fallback_files: dict = defaultdict(list)
 
-    org_map: dict = {}
     for file_record, device, region, org, warning_event, event_type in rows:
-        org_name = org.name if org else "未知公司"
-        region_name = region.name if region else "未知区域"
         event_type_name = event_type.name if event_type else "未知事件类型"
-
-        if org_name not in org_map:
-            org_map[org_name] = {}
-        if region_name not in org_map[org_name]:
-            org_map[org_name][region_name] = {}
-        if event_type_name not in org_map[org_name][region_name]:
-            org_map[org_name][region_name][event_type_name] = []
-
-        org_map[org_name][region_name][event_type_name].append({
+        file_node = {
             "id": file_record.id,
             "name": file_record.file_name,
             "isFile": True,
@@ -157,41 +185,72 @@ async def get_file_tree(
             "eventType": event_type_name,
             "previewUrl": ensure_valid_media_url(file_record.url) or "",
             "filePath": ensure_valid_media_url(file_record.storage_path) or "",
-        })
+        }
+        if org and region:
+            files_by_org_region[org.id][region.id][event_type_name].append(file_node)
+        else:
+            fallback_files[event_type_name].append(file_node)
 
-    tree = []
-    org_idx = 0
-    for org_name, regions in org_map.items():
+    # 6. 递归 attach files 到叶子 region
+    def attach_files(region_node: dict, region_files: dict) -> None:
+        if not region_node.get("children"):  # 叶子
+            etype_files = region_files.get(region_node["id"], {})
+            for etype_name, files in etype_files.items():
+                if files:
+                    region_node["children"].append({
+                        "id": f"region-{region_node['id']}-etype-{etype_name}",
+                        "name": etype_name,
+                        "isEventType": True,
+                        "children": files,
+                    })
+        else:
+            for child in region_node["children"]:
+                attach_files(child, region_files)
+
+    # 7. 组装最终树
+    result: list = []
+    for org in orgs:
         org_node = {
-            "id": f"org-{org_idx}",
-            "name": org_name,
+            "id": f"org-{org.id}",
+            "name": org.name,
             "isCompany": True,
             "children": [],
         }
-        region_idx = 0
-        for region_name, event_types in regions.items():
-            region_node = {
-                "id": f"org-{org_idx}-region-{region_idx}",
-                "name": region_name,
-                "isRegion": True,
-                "children": [],
-            }
-            event_type_idx = 0
-            for event_type_name, files in event_types.items():
-                event_type_node = {
-                    "id": f"org-{org_idx}-region-{region_idx}-etype-{event_type_idx}",
-                    "name": event_type_name,
+        org_files = files_by_org_region.get(org.id, {})
+        # 把该公司下所有 region roots 挂到 org_node
+        for root in region_roots:
+            if root.get("org_id") == org.id:
+                attach_files(root, org_files)
+                org_node["children"].append(root)
+        result.append(org_node)
+
+    # 退化路径：存在 file 但 org/region 缺失（无主），聚合到 "未知公司" 节点
+    if fallback_files:
+        unknown_node = {
+            "id": "org-unknown",
+            "name": "未知公司",
+            "isCompany": True,
+            "children": [],
+        }
+        unknown_region_node = {
+            "id": "region-unknown",
+            "name": "未知区域",
+            "isRegion": True,
+            "children": [],
+        }
+        for etype_name, files in fallback_files.items():
+            if files:
+                unknown_region_node["children"].append({
+                    "id": f"region-unknown-etype-{etype_name}",
+                    "name": etype_name,
                     "isEventType": True,
                     "children": files,
-                }
-                region_node["children"].append(event_type_node)
-                event_type_idx += 1
-            org_node["children"].append(region_node)
-            region_idx += 1
-        tree.append(org_node)
-        org_idx += 1
+                })
+        if unknown_region_node["children"]:
+            unknown_node["children"].append(unknown_region_node)
+            result.append(unknown_node)
 
-    return tree
+    return result
 
 
 @router.get("/{file_id}", response_model=FileRecordResponse)
