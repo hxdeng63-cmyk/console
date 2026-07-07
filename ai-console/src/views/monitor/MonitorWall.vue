@@ -151,12 +151,12 @@ const { currentDevice, currentVideoUrl, currentSourceType, currentProtocol } =
   useCurrentStream(selectedChannel, channels, registry.streamMap, selectedAlgorithm)
 
 // HLS 多次失败时回退的本地素材 URL。VideoPlayer 会在 3 次 NETWORK_ERROR 后自动切到此地址。
-// 与 useCurrentStream 内部的"无算法时本地 mp4"逻辑保持一致。
-// Per .omc/specs/deep-interview-photo-videos-archive.md: 走 backend /data/*
-// (vite proxy 转发到 FastAPI StaticFiles mount)
+// Per .omc/specs/deep-interview-photo-videos-archive.md:
+// - backend 从 DB device.name 构造 deviceFallbackUrl, 通过 stream API 返回
+// - frontend 直接用 API 返回的字段, 不再前端拼路径, 无 symlink 依赖
 const localFallbackUrl = computed(() => {
-  const rid = parseRawChannelId(selectedChannel.value)
-  return rid ? `/data/monitoring/device_${rid}.mp4` : ''
+  const key = `device-${selectedChannel.value}`
+  return registry.streamMap.value[key]?.deviceFallbackUrl || ''
 })
 
 const algorithms = ref<AlgorithmGroup[]>([])
@@ -336,7 +336,11 @@ async function startSelectedAlgorithm(): Promise<void> {
             if (!info?.flv_url) return
             registry.streamMap.value = {
               ...registry.streamMap.value,
-              [`device-${rid}`]: { url: info.flv_url, sourceType: info.source_type || 'stream' },
+              [`device-${rid}`]: {
+                url: info.flv_url,
+                sourceType: info.source_type || 'stream',
+                deviceFallbackUrl: info.device_fallback_url,
+              },
             }
           } catch (err) {
             console.warn('[MonitorWall] 启动后刷新 flv_url 失败', err)

@@ -5,6 +5,9 @@ import { withCacheBuster } from '@/utils/streamUrl'
 export interface StreamInfo {
   url: string
   sourceType: string
+  /** 本地 fallback mp4 路径(HLS 失败时用); backend 从 DB device.name 构造,
+   * 不依赖 symlink, 跨机器可移植 */
+  deviceFallbackUrl?: string
 }
 
 const POLL_INTERVAL_MS = 2000
@@ -112,6 +115,7 @@ export function useStreamRegistry() {
             newMap[prefixedId] = {
               url: withCacheBuster(item.flv_url, item.source_type || ''),
               sourceType: item.source_type || '',
+              deviceFallbackUrl: item.device_fallback_url || undefined,
             }
           }
         })

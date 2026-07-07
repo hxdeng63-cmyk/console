@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.async_tasks import async_task_manager
 from app.core.database import AsyncSessionLocal, get_db
 from app.models.data_source import DataSource
+from app.models.device import Device
 from app.services.stream_url_resolver import resolve_stream_url_for_device
 from app.services.traffic_api_client import (
     TrafficApiAuthError,
@@ -207,7 +208,17 @@ async def _resolve_device_stream(device_id: int, db: AsyncSession) -> dict | Non
 
     直播流 RTSP/RTMP 由 traffic-api 在收到 /start 后内部注册到其 HLS endpoint；
     本接口直接读 traffic-api /flv 拿到 m3u8 路径。
+
+    Per .omc/specs/deep-interview-photo-videos-archive.md: 始终从 DB 查 device.name
+    构造 device_fallback_url (本地 mp4 兜底路径), 让前端 HLS 失败时直接用,
+    无需 frontend 自己拼路径, 无 symlink 依赖。
     """
+    # 查 DB 拿 device.name 构造本地 fallback URL
+    device = await db.get(Device, device_id)
+    device_fallback_url = (
+        f"/data/monitoring/{device.name}.mp4" if device else None
+    )
+
     client = get_traffic_api_client()
     try:
         info = await client.device_flv_url(device_id)
@@ -220,10 +231,14 @@ async def _resolve_device_stream(device_id: int, db: AsyncSession) -> dict | Non
             "flv_url": info["flv_url"],
             "rtsp_url": info.get("rtsp_url"),
             "source_type": info.get("source_type", "stream"),
+            "device_fallback_url": device_fallback_url,
         }
 
     # 兜底：本地文件 / HTTP 直连
-    return await _local_file_fallback(device_id, db)
+    fallback = await _local_file_fallback(device_id, db)
+    if fallback:
+        fallback["device_fallback_url"] = device_fallback_url
+    return fallback
 
 
 async def _local_file_fallback(device_id: int, db: AsyncSession) -> dict | None:
@@ -262,17 +277,20 @@ async def _local_file_fallback(device_id: int, db: AsyncSession) -> dict | None:
             "source_type": "local",
         }
 
-    # RTSP 源：若 data/monitoring/<device_id>.mp4 存在（兜底素材），
-    # 直接返回 mp4 静态路径，前端 VideoStage 会走 MonitoringVideoPlayer（带 controls）。
-    # Per migration: public/monitoring/ → data/monitoring/
+    # RTSP 源：查 DB 拿 device.name，构造 data/monitoring/{device.name}.mp4 兜底素材。
+    # Per .omc/specs/deep-interview-photo-videos-archive.md: 不依赖 symlink，
+    # device_id → device_name 通过 DB 单一真相源解析。
+    device = await db.get(Device, device_id)
+    if device is None:
+        return None
     static_mp4 = (
-        _PROJECT_ROOT / "data" / "monitoring" / f"device_{device_id}.mp4"
+        _PROJECT_ROOT / "data" / "monitoring" / f"{device.name}.mp4"
     )
     if static_mp4.exists():
         return {
             "device_id": device_id,
             "stream_name": None,
-            "flv_url": f"/data/monitoring/device_{device_id}.mp4",
+            "flv_url": f"/data/monitoring/{device.name}.mp4",
             "rtsp_url": stream_url,
             "source_type": "local",
         }

@@ -30,6 +30,8 @@ export function useCurrentStream(
     if (!currentDevice.value) return ''
     if (!hasAlgorithm.value) {
       const rid = rawIdFromChannel(currentDevice.value.id)
+      const fallback = streamMap.value[currentDevice.value.id]?.deviceFallbackUrl
+      if (fallback) return fallback
       if (rid) return `/data/monitoring/device_${rid}.mp4`
     }
     return streamMap.value[currentDevice.value.id]?.url || ''
