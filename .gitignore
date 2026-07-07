@@ -54,6 +54,10 @@ data/photo-videos/*/*/*/
 !data/photo-videos/*/*/.gitkeep
 !data/photo-videos/*/*/*/.gitkeep
 
+# Monitoring (active camera source video, large files; whitelist .gitkeep only)
+data/monitoring/*
+!data/monitoring/.gitkeep
+
 # Archive (no gitkeep, fully gitignored)
 data/archive/
 

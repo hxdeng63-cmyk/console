@@ -64,7 +64,7 @@ def _legacy_to_new_relative(rel: str) -> Optional[str]:
         images/2026/06/abc.jpg
           → archive/docs_images/2026/06/abc.jpg
         monitoring/北区-设备1.mp4
-          → archive/docs_monitoring/北区-设备1.mp4
+          → monitoring/北区-设备1.mp4
     """
     # form 2a: {N}_{event}/{date}/{filename} under snapshots/clips
     m = re.match(
@@ -94,7 +94,7 @@ def _legacy_to_new_relative(rel: str) -> Optional[str]:
 
     # form 3 / monitoring fallback
     if rel.startswith("monitoring/"):
-        return "archive/docs_monitoring/" + rel[len("monitoring/"):]
+        return "monitoring/" + rel[len("monitoring/"):]
 
     # form 1: docs/{images,videos,review,visualized}/... → archive/docs_*/
     for sub in ("images", "videos", "review", "visualized"):

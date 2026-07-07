@@ -229,7 +229,7 @@ async def _resolve_device_stream(device_id: int, db: AsyncSession) -> dict | Non
 async def _local_file_fallback(device_id: int, db: AsyncSession) -> dict | None:
     """traffic-api 不可用时，从 resolve_stream_url_for_device 解析本地文件 / HTTP 直连 URL。
 
-    对 RTSP 源，若 data/archive/docs_monitoring/ 下有对应 device 的 mp4 兜底素材，
+    对 RTSP 源，若 data/monitoring/ 下有对应 device 的 mp4 兜底素材，
     也直接返回 mp4 路径，避免被 traffic-api 鉴权阻塞。
     """
     stream_url, access_type = await _find_stream_url(device_id, db)
@@ -262,17 +262,17 @@ async def _local_file_fallback(device_id: int, db: AsyncSession) -> dict | None:
             "source_type": "local",
         }
 
-    # RTSP 源：若 data/archive/docs_monitoring/<device_id>.mp4 存在（兜底素材），
+    # RTSP 源：若 data/monitoring/<device_id>.mp4 存在（兜底素材），
     # 直接返回 mp4 静态路径，前端 VideoStage 会走 MonitoringVideoPlayer（带 controls）。
-    # Per migration: public/monitoring/ → data/archive/docs_monitoring/
+    # Per migration: public/monitoring/ → data/monitoring/
     static_mp4 = (
-        _PROJECT_ROOT / "data" / "archive" / "docs_monitoring" / f"device_{device_id}.mp4"
+        _PROJECT_ROOT / "data" / "monitoring" / f"device_{device_id}.mp4"
     )
     if static_mp4.exists():
         return {
             "device_id": device_id,
             "stream_name": None,
-            "flv_url": f"/data/archive/docs_monitoring/device_{device_id}.mp4",
+            "flv_url": f"/data/monitoring/device_{device_id}.mp4",
             "rtsp_url": stream_url,
             "source_type": "local",
         }

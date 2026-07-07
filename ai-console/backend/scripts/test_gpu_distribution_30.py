@@ -9,8 +9,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.services.process_monitor import ProcessMonitor
 
-# Per migration: monitoring fallback files moved to data/archive/docs_monitoring/
-_VIDEO = "data/archive/docs_monitoring/device_51.mp4"
+# Per migration: monitoring fallback files moved to data/monitoring/
+_VIDEO = "data/monitoring/device_51.mp4"
 _MODULE = "vehicle_counting"
 
 

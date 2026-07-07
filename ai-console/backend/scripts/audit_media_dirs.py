@@ -177,7 +177,7 @@ def main() -> int:
             f"archive | {len(files)} files |"
         )
         rows.append(
-            f"→ target: `data/archive/docs_monitoring/`"
+            f"→ target: `data/monitoring/`"
         )
 
     out = "\n".join(rows) + "\n"

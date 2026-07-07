@@ -9,8 +9,8 @@ Path forms (NB-2 fix: 3 distinct shapes for snapshots/clips):
 - Form 2a: docs/{snapshots,clips}/{N}_{event_legacy}/{date}/x.{jpg,mp4} → active
 - Form 2b: docs/{snapshots,clips}/{N}/{date}/x.{jpg,mp4} → active (event from filename)
 - Form 2c: docs/{snapshots,clips}/camera_*/{date}/x.{jpg,mp4} → active (event from filename)
-- Form 3: docs/monitoring/*.mp4 → data/archive/docs_monitoring/
-- Form 4: ai-console/public/monitoring/*.{mp4,avi} → data/archive/docs_monitoring/
+- Form 3: docs/monitoring/*.mp4 → data/monitoring/
+- Form 4: ai-console/public/monitoring/*.{mp4,avi} → data/monitoring/
 - Form 5: output/{N}_{event_legacy}_output.mp4 → active (form 5b ffmpeg extract image.jpg)
 - Form 6: output/test_999*.mp4 → delete
 - Form 7: output/{N}_output.mp4 → data/archive/output/
@@ -134,8 +134,8 @@ def classify_path(path: Path) -> Migration | None:
                                       extra={"camera": cam_dir, "event": event})
 
         if subdir == "monitoring":
-            # form 3: docs/monitoring/*.mp4 → archive
-            dst = DATA_ROOT / "archive" / "docs_monitoring" / path.name
+            # form 3: docs/monitoring/*.mp4 → active monitoring/ (camera source video)
+            dst = DATA_ROOT / "monitoring" / path.name
             return Migration(src=path, dst=dst, form="3")
 
         # form 1: docs/{images,videos,review,visualized}/... → archive
