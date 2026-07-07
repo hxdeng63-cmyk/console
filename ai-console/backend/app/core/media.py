@@ -146,7 +146,8 @@ def normalize_media_url(path: Optional[str]) -> Optional[str]:
             pass
         try:
             rel = Path(path).relative_to(LEGACY_DOCS_ROOT).as_posix()
-            return "/data/" + _legacy_to_new_relative(rel)
+            new_rel = _legacy_to_new_relative(rel)
+            return "/data/" + new_rel if new_rel else path
         except ValueError:
             return None
 
