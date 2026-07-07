@@ -1,6 +1,8 @@
 import json
 import os
 import logging
+import uuid as _uuid
+import httpx
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -14,6 +16,8 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.media import (
     DATA_ROOT as _DATA_ROOT,
+    detection_storage_path,
+    detection_url,
     normalize_media_url as _normalize_media_url,
     ensure_valid_media_url,
     file_size_for_path,
@@ -32,6 +36,33 @@ from app.models.video_setting import VideoSetting
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/algorithm-events", tags=["algorithm-events"])
+
+
+async def _fetch_and_save_media(url: str, save_path: Path) -> bool:
+    """从 traffic-api 拉取媒体文件 → 写到 save_path。
+
+    traffic-api 写文件到 /mnt/home/api/traffic/api_service/uploads/...,
+    ingest 时 ai-console 主动拉取 (traffic-api 零改动)。
+
+    Returns True if saved, False on any error (logged warning).
+    """
+    try:
+        # 相对路径 "/uploads/..." → 拼 traffic-api base_url
+        if url.startswith("/"):
+            base = settings.TRAFFIC_API_BASE_URL.rstrip("/")
+            full_url = f"{base}{url}"
+        else:
+            full_url = url
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(full_url)
+            resp.raise_for_status()
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+            save_path.write_bytes(resp.content)
+            return True
+    except Exception as e:
+        logger.warning(f"_fetch_and_save_media 失败 ({url}): {e}")
+        return False
 
 
 # Maps traffic payload keys to event_type.name values.
@@ -450,34 +481,37 @@ async def _create_file_for_event(
     url: Optional[str],
     source_type: FileSourceType,
     device_id: Optional[int],
+    event_name: str,
+    device_name: str,
+    timestamp: str,
+    salt: str,
 ) -> None:
-    """Create a File record for a media URL associated with a WarningEvent."""
+    """拉 traffic-api 文件 → 写到 data/photo-videos/{event}/{det_id}/ + 创建 File 记录。
+
+    Args:
+        event_name: e.g. "pedestrian" (from event_type.name)
+        device_name: e.g. "北区-设备1" (from device.name)
+        timestamp: e.g. "20260701123045" (from report_time)
+        salt: 每 ingest batch 唯一 (uuid4 hex), 防并发同秒冲突
+    """
     if not url:
         return
 
-    normalized_url = _normalize_media_url(url)
-    if not normalized_url:
-        return
+    file_kind = "image" if source_type == FileSourceType.WARNING_EVENT_IMAGE else "video"
+    ext = "jpg" if file_kind == "image" else "mp4"
+    save_path = detection_storage_path(event_name, device_name, timestamp, salt, file_kind)
+    new_url = detection_url(event_name, device_name, timestamp, salt, file_kind)
 
-    # Per migration: normalize_media_url now returns /data/... URLs (not /uploads/).
-    # Strip the leading /data/ prefix to derive a DATA_ROOT-relative path.
-    if normalized_url.startswith("/data/"):
-        relative_path = normalized_url[len("/data/"):]
-    elif normalized_url.startswith("/uploads/"):
-        relative_path = normalized_url[len("/uploads/"):]
-    else:
-        relative_path = normalized_url.lstrip("/")
-    file_name = os.path.basename(relative_path)
-    file_type = Path(file_name).suffix.lstrip(".").lower() or None
-    storage_path = str(_DATA_ROOT / relative_path)
-    file_size = file_size_for_path(relative_path)
+    # 拉 traffic-api 文件 → 写到新路径 (失败时 File 记录仍创建, size=None)
+    await _fetch_and_save_media(url, save_path)
+    file_size = save_path.stat().st_size if save_path.exists() else None
 
     file_record = File(
         warning_event_id=warning_event.id,
         source_type=source_type.value,
-        file_name=file_name,
-        storage_path=storage_path,
-        url=normalized_url,
+        file_name=f"{file_kind}.{ext}",
+        storage_path=str(save_path),
+        url=new_url,
         file_size_bytes=file_size,
         device_id=device_id,
     )
@@ -535,6 +569,12 @@ async def ingest_algorithm_event(
     if not image_url and not video_url:
         return {"message": "no media, skipped", "event_ids": []}
 
+    # [NEW] auto-detection-folder: 查 device.name + 生成 batch salt + timestamp
+    device = await db.get(Device, device_id)
+    device_name = device.name if device else f"dev_{device_id}"
+    salt = _uuid.uuid4().hex
+    timestamp = report_time.strftime("%Y%m%d%H%M%S")
+
     created_events: list[WarningEvent] = []
     for key, event_data in payload.items():
         if key not in _EVENT_KEY_TO_TYPE or not event_data:
@@ -572,12 +612,19 @@ async def ingest_algorithm_event(
     await db.flush()
 
     # Explicitly create File records for every event with media URLs.
+    # [NEW] 传 event_name (来自 _EVENT_KEY_TO_TYPE) + device_name + timestamp + salt
+    # 生成 data/photo-videos/{event}/{event}_{device}_{ts}_{uuid8}/image.jpg|video.mp4
     for event in created_events:
+        event_name = event._payload_key  # e.g. "pedestrian", "accident"
         await _create_file_for_event(
-            db, event, image_url, FileSourceType.WARNING_EVENT_IMAGE, device_id
+            db, event, image_url, FileSourceType.WARNING_EVENT_IMAGE,
+            device_id, event_name=event_name, device_name=device_name,
+            timestamp=timestamp, salt=salt,
         )
         await _create_file_for_event(
-            db, event, video_url, FileSourceType.WARNING_EVENT_VIDEO, device_id
+            db, event, video_url, FileSourceType.WARNING_EVENT_VIDEO,
+            device_id, event_name=event_name, device_name=device_name,
+            timestamp=timestamp, salt=salt,
         )
 
     await db.commit()

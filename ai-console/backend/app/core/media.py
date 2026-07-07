@@ -12,12 +12,50 @@ BS-5 fix: ensure_valid_media_url returns input URL when file is missing
 
 import os
 import re
+import uuid as _uuid
 from pathlib import Path
 from typing import Optional
 
 
 # Per migration plan §3 Step 8: media.py DOCS_ROOT → DATA_ROOT (absolute).
 DATA_ROOT = Path("/home/daxiong/code/console/data")
+
+# Per-detection folder helpers (auto-create on ingest).
+# Format: data/photo-videos/{event}/{event}_{device_name}_{ts}_{uuid8}/{image.jpg,video.mp4}
+_DETECTION_NS = _uuid.UUID("a3b8c5d2-1e9f-4a7b-8c6d-2e1f0a9b8c7d")
+
+
+def make_detection_id(
+    event_name: str, device_name: str, timestamp: str, salt: str = ""
+) -> str:
+    """生成 detection 文件夹名: {event}_{device_name}_{ts}_{uuid8}
+
+    用 uuid5 (确定性) 基于 event+device+ts+salt 生成唯一 8 字符后缀。
+    同输入必同输出; 不同 salt (并发 ingest) 自动防冲突。
+    """
+    seed = f"{event_name}|{device_name}|{timestamp}|{salt}"
+    u = _uuid.uuid5(_DETECTION_NS, seed)
+    return f"{event_name}_{device_name}_{timestamp}_{u.hex[:8]}"
+
+
+def detection_storage_path(
+    event_name: str, device_name: str, timestamp: str, salt: str,
+    file_kind: str,
+) -> Path:
+    """物理存储路径: data/photo-videos/{event}/{det_id}/{file_kind}.{ext}"""
+    det_id = make_detection_id(event_name, device_name, timestamp, salt)
+    ext = "jpg" if file_kind == "image" else "mp4"
+    return DATA_ROOT / "photo-videos" / event_name / det_id / f"{file_kind}.{ext}"
+
+
+def detection_url(
+    event_name: str, device_name: str, timestamp: str, salt: str,
+    file_kind: str,
+) -> str:
+    """公开 URL: /data/photo-videos/{event}/{det_id}/{file_kind}.{ext}"""
+    det_id = make_detection_id(event_name, device_name, timestamp, salt)
+    ext = "jpg" if file_kind == "image" else "mp4"
+    return f"/data/photo-videos/{event_name}/{det_id}/{file_kind}.{ext}"
 
 # Legacy DOCS_ROOT kept for any fallback paths that might still reference it
 # (e.g., during transition). After migration completes, this can be removed.
