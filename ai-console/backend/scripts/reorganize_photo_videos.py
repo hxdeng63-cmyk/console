@@ -24,16 +24,6 @@ PROJECT_ROOT = Path("/home/daxiong/code/console")
 DATA_ROOT = PROJECT_ROOT / "data"
 PHOTO_VIDEOS = DATA_ROOT / "photo-videos"
 
-# Legacy algorithm → new event name
-EVENT_NAME_MAP = {
-    "traffic_jam": "jam",
-    "vehicle_counting": "flow",
-    "reverse_detection": "reverse",
-    "pedestrian_intrusion": "pedestrian",
-    "accident_detection": "accident",
-    "vest_detection": "vest",
-}
-
 # 文件名 event token (form 2b/2c 用)
 FILENAME_EVENT_TOKENS = "pedestrian|accident|vest|jam|anomaly|flow|reverse"
 
@@ -58,14 +48,6 @@ def make_detection_id(
     return f"{event_name}_{device_name}_{timestamp}_{u.hex[:8]}"
 
 
-def is_already_migrated(path: Path) -> bool:
-    """判断是否已经重组过 (image.jpg + video.mp4 + .gitkeep 都在)."""
-    if not path.is_dir():
-        return False
-    files = {f.name for f in path.iterdir() if f.is_file() and f.name != ".gitkeep"}
-    return files == {"image.jpg", "video.mp4"}
-
-
 def device_id_from_rel(rel: Path) -> str:
     """从 PHOTO_VIDEOS 相对路径推断 device_id (字符串)。
     rel 形如 {event}/{N}/... 或 {event}/{N}_{event_legacy}/... 或 {event}/camera_*/...
@@ -86,19 +68,11 @@ def device_id_from_rel(rel: Path) -> str:
     return ""
 
 
-def event_from_filename(filename: str) -> str | None:
-    """从文件名提取 event (form 2b/2c 模式: pedestrian_147_1782910592.jpg)."""
-    m = re.match(rf"^({FILENAME_EVENT_TOKENS})_", filename)
-    if m:
-        return m.group(1)
-    return None
-
-
 def timestamp_from_filename(filename: str) -> str:
     """从文件名提取 timestamp (form 2b/2c: pedestrian_147_1782910592.jpg → 1782910592)."""
-    m = re.match(rf"^({FILENAME_EVENT_TOKENS})_(\d+)_(\d+)\.", filename)
+    m = re.match(rf"^\w+_(\d+)_(\d+)\.", filename)
     if m:
-        return m.group(3)
+        return m.group(2)
     return ""
 
 
