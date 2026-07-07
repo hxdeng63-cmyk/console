@@ -127,11 +127,17 @@ def rewrite_url(old: str) -> str | None:
         cam, date, event, _det_id, _ts, ext = m.groups()
         return f"/data/photo-videos/{event}/{cam}/{date}/{event}_{m.group(4)}_{m.group(5)}.{ext}"
 
-    # docs/monitoring/... → /data/monitoring/...
+    # docs/monitoring/... → /data/monitoring/ (mp4) or /data/archive/monitoring_avi/ (avi)
     if old.startswith("docs/monitoring/"):
-        return "/data/monitoring/" + old[len("docs/monitoring/"):]
+        suffix = old[len("docs/monitoring/"):]
+        if suffix.lower().endswith(".avi"):
+            return "/data/archive/monitoring_avi/" + suffix
+        return "/data/monitoring/" + suffix
     if old.startswith("monitoring/"):
-        return "/data/monitoring/" + old[len("monitoring/"):]
+        suffix = old[len("monitoring/"):]
+        if suffix.lower().endswith(".avi"):
+            return "/data/archive/monitoring_avi/" + suffix
+        return "/data/monitoring/" + suffix
 
     # docs/{images,videos,review,visualized}/... → /data/archive/docs_*/
     for sub in ("images", "videos", "review", "visualized"):

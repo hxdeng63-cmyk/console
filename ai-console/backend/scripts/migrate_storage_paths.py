@@ -10,7 +10,9 @@ Path forms (NB-2 fix: 3 distinct shapes for snapshots/clips):
 - Form 2b: docs/{snapshots,clips}/{N}/{date}/x.{jpg,mp4} → active (event from filename)
 - Form 2c: docs/{snapshots,clips}/camera_*/{date}/x.{jpg,mp4} → active (event from filename)
 - Form 3: docs/monitoring/*.mp4 → data/monitoring/
-- Form 4: ai-console/public/monitoring/*.{mp4,avi} → data/monitoring/
+                   docs/monitoring/*.avi → data/archive/monitoring_avi/ (legacy test)
+- Form 4: ai-console/public/monitoring/*.mp4 → data/monitoring/
+                   ai-console/public/monitoring/*.avi → data/archive/monitoring_avi/
 - Form 5: output/{N}_{event_legacy}_output.mp4 → active (form 5b ffmpeg extract image.jpg)
 - Form 6: output/test_999*.mp4 → delete
 - Form 7: output/{N}_output.mp4 → data/archive/output/
@@ -134,8 +136,12 @@ def classify_path(path: Path) -> Migration | None:
                                       extra={"camera": cam_dir, "event": event})
 
         if subdir == "monitoring":
-            # form 3: docs/monitoring/*.mp4 → active monitoring/ (camera source video)
-            dst = DATA_ROOT / "monitoring" / path.name
+            # form 3: docs/monitoring/*.mp4 → active monitoring/ (production camera source)
+            #         docs/monitoring/*.avi → archive/monitoring_avi/ (legacy test footage)
+            if path.suffix.lower() == ".avi":
+                dst = DATA_ROOT / "archive" / "monitoring_avi" / path.name
+            else:
+                dst = DATA_ROOT / "monitoring" / path.name
             return Migration(src=path, dst=dst, form="3")
 
         # form 1: docs/{images,videos,review,visualized}/... → archive
@@ -149,7 +155,10 @@ def classify_path(path: Path) -> Migration | None:
     except ValueError:
         return None
     if rel_pm.parts:
-        dst = DATA_ROOT / "archive" / "docs_monitoring" / path.name
+        if path.suffix.lower() == ".avi":
+            dst = DATA_ROOT / "archive" / "monitoring_avi" / path.name
+        else:
+            dst = DATA_ROOT / "monitoring" / path.name
         return Migration(src=path, dst=dst, form="4")
 
     return None
