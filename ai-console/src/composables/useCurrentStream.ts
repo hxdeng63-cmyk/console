@@ -23,16 +23,18 @@ export function useCurrentStream(
     return channels.value.find(ch => ch.id === channel.value) || null
   })
 
-  // 有算法 → traffic-api 推理后 m3u8（HLS，带 bbox）；无算法 → ai-console public/monitoring 原视频 mp4。
+  // 有算法 → traffic-api 推理后 m3u8（HLS，带 bbox）；无算法 → 走 backend stream API 返的
+  // device_fallback_url (用 device.name 构造, e.g. /data/monitoring/西区-设备1.mp4)
   const hasAlgorithm = computed(() => Boolean(selectedAlgorithm?.value))
 
   const currentVideoUrl = computed(() => {
     if (!currentDevice.value) return ''
     if (!hasAlgorithm.value) {
-      const rid = rawIdFromChannel(currentDevice.value.id)
       const fallback = streamMap.value[currentDevice.value.id]?.deviceFallbackUrl
       if (fallback) return fallback
-      if (rid) return `/data/monitoring/device_${rid}.mp4`
+      // 兜底: backend API 没返 fallback_url 时, 用空字符串 (前端渲染占位)
+      // 旧硬编码 /data/monitoring/device_${rid}.mp4 已删 (物理文件不存在)
+      return ''
     }
     return streamMap.value[currentDevice.value.id]?.url || ''
   })

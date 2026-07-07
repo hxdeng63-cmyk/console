@@ -61,7 +61,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, onMounted, onUnmounted, watch, type Ref } from 'vue'
 import { useVideoPlayer, type Protocol } from './useVideoPlayer'
 import { useStreamPoolStore } from '@/stores/streamPool'
 
@@ -78,6 +78,11 @@ interface Props {
   // 必须返回**同步**的新 url (Promise<string|null>),不能让 VideoPlayer 等着再 emit。
   // 父组件的回调实现可以是 getDeviceFlvUrl(deviceId) 然后 buildUrl。
   refreshStreamUrl?: () => Promise<string | null>
+  // 可选：HLS 多次失败时回退到此 URL（由 backend stream API 返的 device_fallback_url 传入,
+  //       实际形如 /data/monitoring/<device.name>.mp4）
+  fallbackUrl?: string
+  // 可选：实时事件 ref（来自 useRealtimeSocket），用于在视频上画 bbox
+  realtimeEvent?: Ref<{ event_detail?: Record<string, any> | null } | null>
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -122,11 +127,16 @@ const {
   stopBackgroundActivity,
   resumeBackgroundActivity,
   setProtocol,
+  initNativeFallback,
+  drawBboxes,
+  clearCanvas,
+  setRealtimeEvent,
 } = useVideoPlayer({
   url: props.url,
   protocol: props.protocol,
   enableDualProtocol: props.enableDualProtocol,
   autoStart: props.autoStart,
+  fallbackUrl: props.fallbackUrl,
   onHlsNetworkError: async () => {
     // 优先用 props.refreshStreamUrl(同步返回新 url)。
     // 旧 emit 路径保留作为 fallback — 父组件即使不传 refreshStreamUrl 也能收到通知自己处理。
@@ -145,6 +155,13 @@ const {
     return null
   },
 })
+
+// 父组件传 realtimeEvent 时,把 WS 事件流接入 useVideoPlayer 画 bbox。
+watch(
+  () => props.realtimeEvent,
+  (ref) => setRealtimeEvent(ref),
+  { immediate: true }
+)
 
 watch([() => props.initialOsdText, () => props.initialOsdLocation], () => {
   updateOsd(props.initialOsdText, props.initialOsdLocation)
@@ -173,6 +190,31 @@ watch(canvasRef, (el) => {
     const canvas = el
     canvas.width = video.clientWidth || 800
     canvas.height = video.clientHeight || 450
+  }
+})
+
+// 监听 video 元素尺寸变化,同步 canvas 尺寸 —— 否则 bbox 绘制会错位。
+// 原代码只在 canvasRef 变化时设一次尺寸,窗口 resize / 全屏切换后画框就跑偏了。
+let resizeObserver: ResizeObserver | null = null
+onMounted(() => {
+  if (videoRef.value && typeof ResizeObserver !== 'undefined') {
+    resizeObserver = new ResizeObserver(() => {
+      if (videoRef.value && canvasRef.value) {
+        const w = videoRef.value.clientWidth
+        const h = videoRef.value.clientHeight
+        if (w > 0 && h > 0) {
+          canvasRef.value.width = w
+          canvasRef.value.height = h
+        }
+      }
+    })
+    resizeObserver.observe(videoRef.value)
+  }
+})
+onUnmounted(() => {
+  if (resizeObserver) {
+    resizeObserver.disconnect()
+    resizeObserver = null
   }
 })
 
@@ -277,6 +319,9 @@ defineExpose({
   start,
   stopBackgroundActivity,
   resumeBackgroundActivity,
+  initNativeFallback,
+  drawBboxes,
+  clearCanvas,
 })
 </script>
 

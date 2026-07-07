@@ -12,6 +12,8 @@
           :protocol="protocol"
           :initial-osd-location="device.name"
           :refresh-stream-url="refreshStreamUrl"
+          :fallback-url="fallbackUrl"
+          :realtime-event="realtimeEvent"
           @hls-network-error="emit('hls-network-error')"
         />
         <div v-else-if="loading" class="video-placeholder">
@@ -37,7 +39,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, type Ref } from 'vue'
 import MonitoringVideoPlayer from '@/components/monitor/MonitoringVideoPlayer.vue'
 import VideoPlayer from '@/components/video/VideoPlayer.vue'
 import { isLocalStream } from '@/utils/streamUrl'
@@ -55,6 +57,11 @@ const props = defineProps<{
   loading: boolean
   error: boolean
   refreshStreamUrl?: () => Promise<string | null>
+  // HLS 多次失败时回退到此 URL（由 backend stream API 返的 device_fallback_url 传入,
+  //       实际形如 /data/monitoring/<device.name>.mp4）
+  fallbackUrl?: string
+  // 实时事件 ref（来自 useRealtimeSocket），用于在视频上画 bbox
+  realtimeEvent?: Ref<{ event_detail?: Record<string, any> | null } | null>
 }>()
 
 const isNativeVideo = computed(() => isLocalStream(props.sourceType, props.videoUrl))
