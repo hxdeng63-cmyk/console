@@ -24,13 +24,8 @@ export default defineConfig({
   },
   // Per .omc/specs/deep-interview-photo-videos-archive.md:
   // 统一在 /home/daxiong/code/console/data/ 下管理所有 media（图片 + 视频）。
-  // publicDir 同时包含 `public/` (前端公共资源如 icons/admin.jpg) 和
-  // `../../data/monitoring/` (算法输入源视频)，这样前端 `/monitoring/device_X.mp4`
-  // URL 直接由 vite serve，无需 ai-console/public/ 软链。
-  publicDir: [
-    'public',
-    resolve(__dirname, '../../data/monitoring'),
-  ],
+  // vite 不再复制 media 文件到 dist/；前端 /data/* URL 通过 proxy 到 backend
+  // (FastAPI app.mount("/data", StaticFiles(directory=DATA_DIR))) 读取。
   server: {
     port: 10073,
     host: true,
@@ -41,6 +36,10 @@ export default defineConfig({
         changeOrigin: true
       },
       '/uploads': {
+        target: 'http://127.0.0.1:10088',
+        changeOrigin: true
+      },
+      '/data': {
         target: 'http://127.0.0.1:10088',
         changeOrigin: true
       },

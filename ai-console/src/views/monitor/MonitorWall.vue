@@ -10,6 +10,8 @@
           :loading="registry.streamLoading.value"
           :error="registry.streamError.value"
           :refresh-stream-url="refreshStreamUrlSync"
+          :fallback-url="localFallbackUrl"
+          :realtime-event="dashboard.realtimeEvent"
           @hls-network-error="refreshStreamOnNetworkError"
         />
       </div>
@@ -147,6 +149,15 @@ const stopPoll = useStopPoll()
 
 const { currentDevice, currentVideoUrl, currentSourceType, currentProtocol } =
   useCurrentStream(selectedChannel, channels, registry.streamMap, selectedAlgorithm)
+
+// HLS 多次失败时回退的本地素材 URL。VideoPlayer 会在 3 次 NETWORK_ERROR 后自动切到此地址。
+// 与 useCurrentStream 内部的"无算法时本地 mp4"逻辑保持一致。
+// Per .omc/specs/deep-interview-photo-videos-archive.md: 走 backend /data/*
+// (vite proxy 转发到 FastAPI StaticFiles mount)
+const localFallbackUrl = computed(() => {
+  const rid = parseRawChannelId(selectedChannel.value)
+  return rid ? `/data/monitoring/device_${rid}.mp4` : ''
+})
 
 const algorithms = ref<AlgorithmGroup[]>([])
 const filteredEvents = computed(() => {

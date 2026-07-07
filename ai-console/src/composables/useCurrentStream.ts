@@ -7,22 +7,37 @@ export interface ChannelItem {
   name: string
 }
 
+function rawIdFromChannel(id: string): number {
+  if (!id) return 0
+  const n = Number(id.replace(/^device-/, ''))
+  return Number.isNaN(n) ? 0 : n
+}
+
 export function useCurrentStream(
   channel: Ref<string>,
   channels: Ref<ChannelItem[]>,
   streamMap: Ref<Record<string, StreamInfo>>,
+  selectedAlgorithm?: Ref<string>,
 ) {
   const currentDevice = computed(() => {
     return channels.value.find(ch => ch.id === channel.value) || null
   })
 
+  // 有算法 → traffic-api 推理后 m3u8（HLS，带 bbox）；无算法 → ai-console public/monitoring 原视频 mp4。
+  const hasAlgorithm = computed(() => Boolean(selectedAlgorithm?.value))
+
   const currentVideoUrl = computed(() => {
     if (!currentDevice.value) return ''
+    if (!hasAlgorithm.value) {
+      const rid = rawIdFromChannel(currentDevice.value.id)
+      if (rid) return `/data/monitoring/device_${rid}.mp4`
+    }
     return streamMap.value[currentDevice.value.id]?.url || ''
   })
 
   const currentSourceType = computed(() => {
     if (!currentDevice.value) return ''
+    if (!hasAlgorithm.value) return 'local'
     return streamMap.value[currentDevice.value.id]?.sourceType || ''
   })
 
