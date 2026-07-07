@@ -22,6 +22,15 @@ export default defineConfig({
       '@': resolve(__dirname, 'src')
     }
   },
+  // Per .omc/specs/deep-interview-photo-videos-archive.md:
+  // 统一在 /home/daxiong/code/console/data/ 下管理所有 media（图片 + 视频）。
+  // publicDir 同时包含 `public/` (前端公共资源如 icons/admin.jpg) 和
+  // `../../data/monitoring/` (算法输入源视频)，这样前端 `/monitoring/device_X.mp4`
+  // URL 直接由 vite serve，无需 ai-console/public/ 软链。
+  publicDir: [
+    'public',
+    resolve(__dirname, '../../data/monitoring'),
+  ],
   server: {
     port: 10073,
     host: true,
@@ -35,11 +44,11 @@ export default defineConfig({
         target: 'http://127.0.0.1:10088',
         changeOrigin: true
       },
-      // traffic-api HLS endpoint: traffic-api 端 FFmpeg 输出 HLS 在此路径下
+      // traffic-api HLS endpoint: traffic-api 路由固定是 /stream/{token}/.../{file}
+      // → 转发时**保留 /stream 前缀**（之前误把 /stream 剥掉导致 traffic-api 404）
       '/stream': {
         target: 'http://127.0.0.1:10000',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/stream/, ''),
         configure: (proxy) => {
           proxy.on('proxyRes', fixMtxCookies)
         },
