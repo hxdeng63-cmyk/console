@@ -19,7 +19,7 @@
       </el-button>
       <el-dropdown trigger="click" @command="handleCommand">
         <div class="user-info">
-          <el-avatar :size="32" src="/data/head-portrait/admin.jpg" />
+          <el-avatar :size="32" :src="'/data/head-portrait/admin.jpg'" />
           <span class="username">admin</span>
           <el-icon><ArrowDown /></el-icon>
         </div>

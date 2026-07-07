@@ -3,7 +3,7 @@
     <!-- 左侧：Logo + 系统名称 -->
     <div class="header-left">
       <div class="logo-area">
-        <img src="/data/head-portrait/admin.jpg" alt="logo" class="logo-img" />
+        <img :src="'/data/head-portrait/admin.jpg'" alt="logo" class="logo-img" />
         <span class="system-name">交通智能分析系统</span>
       </div>
     </div>
@@ -35,7 +35,7 @@
       </el-button>
       <el-dropdown trigger="click" @command="handleCommand">
         <div class="user-info">
-          <el-avatar :size="28" src="/data/head-portrait/admin.jpg" />
+          <el-avatar :size="28" :src="'/data/head-portrait/admin.jpg'" />
           <span class="username">admin</span>
           <el-icon><ArrowDown /></el-icon>
         </div>
