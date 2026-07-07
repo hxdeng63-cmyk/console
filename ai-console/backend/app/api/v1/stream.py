@@ -253,11 +253,12 @@ async def _local_file_fallback(device_id: int, db: AsyncSession) -> dict | None:
 
     # 本地文件路径：直接返回文件 URL
     # Per migration: stream_url is now /data/...  (legacy docs/ or /uploads/ also accepted for safety)
+    # rtsp:// URL 跳过本分支 → 落到下面 RTSP 分支 (data/monitoring fallback)
     if (
         stream_url.startswith("docs/")
         or stream_url.startswith("/data/")
         or stream_url.startswith("/uploads/")
-        or access_type == "本地"
+        or (access_type == "本地" and not stream_url.startswith("rtsp://"))
     ):
         if stream_url.startswith("docs/"):
             flv_url = f"/data/{stream_url[5:]}"
