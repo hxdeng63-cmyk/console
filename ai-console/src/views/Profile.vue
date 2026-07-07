@@ -88,7 +88,7 @@ const router = useRouter()
 const formRef = ref()
 const pwdFormRef = ref()
 const fileInput = ref<HTMLInputElement>()
-const avatarUrl = ref('/admin.jpg')
+const avatarUrl = ref('/data/head-portrait/admin.jpg')
 const avatarError = ref(false)
 const passwordVisible = ref(false)
 

@@ -2,7 +2,7 @@
   <div class="login-page">
     <div class="login-card">
       <div class="login-avatar">
-        <img src="/admin.jpg" alt="avatar" />
+        <img src="/data/head-portrait/admin.jpg" alt="avatar" />
       </div>
       <div class="login-title">AI 控制台</div>
       <div class="login-subtitle">欢迎回来，请登录您的账号</div>
