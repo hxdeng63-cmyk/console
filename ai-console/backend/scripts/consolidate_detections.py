@@ -48,8 +48,9 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
-    # 1. 收集所有文件, 按 (event, device_name, ts) 配对
-    groups: dict[tuple, dict[str, Path]] = defaultdict(dict)
+    # 1. 收集所有文件, 按 (event, device_name) 分组 + 记录 mtime
+    by_group: dict[tuple, list[tuple[Path, str, int]]] = defaultdict(list)
+    # group_key = (event, device_name) → [(file_path, kind, mtime), ...]
     skipped_already = 0
     skipped_unparseable: list[Path] = []
 
@@ -57,57 +58,90 @@ def main() -> int:
         if not src_file.is_file() or src_file.name == ".gitkeep":
             continue
         parent = src_file.parent
-        # 跳过已经在正确结构的 (image.jpg + video.mp4 + .gitkeep)
         if (parent / "image.jpg").exists() and (parent / "video.mp4").exists():
             skipped_already += 1
             continue
 
-        # 解析 parent dir
         parsed = parse_parent_dir(parent.name)
         if parsed is None:
-            # 也许 form 2 文件还在原路径 (pedestrian/53/20260626/)
-            # parent.name 不匹配新格式, 不归本脚本管
             skipped_unparseable.append(src_file)
             continue
 
         event, device, ts, uuid8 = parsed
         kind = "image" if src_file.suffix.lower() == ".jpg" else "video"
-        pairing_key = (event, device, ts)
-        if kind in groups[pairing_key]:
-            print(f"  WARN: 冲突 {pairing_key}: {groups[pairing_key][kind].relative_to(DATA_ROOT)} vs {src_file.relative_to(DATA_ROOT)}")
-        groups[pairing_key][kind] = src_file
+        by_group[(event, device)].append((src_file, kind, int(ts)))
 
     if skipped_already:
         print(f"跳过已正确 ({skipped_already} 个)")
 
     if skipped_unparseable:
-        print(f"未解析的 {len(skipped_unparseable)} 个文件 (form 2 原路径保留, 不动):")
+        print(f"未解析的 {len(skipped_unparseable)} 个文件:")
         for f in skipped_unparseable[:5]:
             print(f"  {f.relative_to(DATA_ROOT)}")
         if len(skipped_unparseable) > 5:
             print(f"  ... (还有 {len(skipped_unparseable) - 5} 个)")
 
-    # 2. 每个 pairing_key → 新 det_id dir
+    # 2. 每个 (event, device) 组内: 按 ts 排序, greedy 配对 image↔video (ts 最近)
+    # 容忍: form 5 image mtime 晚于 video 0-600s (ffmpeg 提取延迟)
     moves: list[tuple[Path, Path]] = []
-    for (event, device, ts), files in groups.items():
-        salt = f"consolidate:{event}:{ts}"  # 同 (event, device, ts) 同 salt → 同 det_id
-        det_id = make_detection_id(event, device, ts, salt)
-        new_dir = PHOTO_VIDEOS / event / det_id
+    for (event, device), files in by_group.items():
+        # 按 mtime 排序
+        files.sort(key=lambda x: x[2])
+        # greedy: 对每个 image 找最近的 video (±600s)
+        used = set()
+        images = [(f, k, t) for f, k, t in files if k == "image"]
+        videos = [(f, k, t) for f, k, t in files if k == "video"]
 
-        for kind, src in files.items():
-            ext = "jpg" if kind == "image" else "mp4"
-            target = new_dir / f"{kind}.{ext}"
-            if src != target:
-                moves.append((src, target))
+        for img_path, _, img_ts in images:
+            if img_path in used:
+                continue
+            # 找最近的未用 video
+            best_vid = None
+            best_diff = 10**9
+            for vid_path, _, vid_ts in videos:
+                if vid_path in used:
+                    continue
+                diff = abs(img_ts - vid_ts)
+                if diff < best_diff:
+                    best_diff = diff
+                    best_vid = vid_path
+            if best_vid is not None and best_diff <= 600:
+                used.add(img_path)
+                used.add(best_vid)
+                # 用较早的 ts 作为 det ts
+                ts = str(min(img_ts, best_vid.stat().st_mtime and int(best_vid.stat().st_mtime) or vid_ts))
+                ts = str(min(img_ts, vid_ts))  # 较早的时间
+                salt = f"consolidate:{event}:{device}:{ts}"
+                det_id = make_detection_id(event, device, ts, salt)
+                new_dir = PHOTO_VIDEOS / event / det_id
+                moves.append((img_path, new_dir / "image.jpg"))
+                moves.append((best_vid, new_dir / "video.mp4"))
+            else:
+                # image 无配对 video → 单文件 dir
+                ts = str(img_ts)
+                salt = f"consolidate:{event}:{device}:{ts}"
+                det_id = make_detection_id(event, device, ts, salt)
+                new_dir = PHOTO_VIDEOS / event / det_id
+                moves.append((img_path, new_dir / "image.jpg"))
+                used.add(img_path)
+
+        # 剩余未用 video
+        for vid_path, _, vid_ts in videos:
+            if vid_path in used:
+                continue
+            ts = str(vid_ts)
+            salt = f"consolidate:{event}:{device}:{ts}"
+            det_id = make_detection_id(event, device, ts, salt)
+            new_dir = PHOTO_VIDEOS / event / det_id
+            moves.append((vid_path, new_dir / "video.mp4"))
+            used.add(vid_path)
 
     target_dirs = {t.parent for _, t in moves}
     img_count = sum(1 for _, t in moves if t.name == "image.jpg")
     vid_count = sum(1 for _, t in moves if t.name == "video.mp4")
-    pair_count = sum(1 for d in target_dirs if (d / "image.jpg").exists() and (d / "video.mp4").exists())
 
     print(f"\n将创建 {len(target_dirs)} 个新 detection dirs")
     print(f"将移动 {len(moves)} 个文件 (image={img_count}, video={vid_count})")
-    print(f"预期成对 ({pair_count} 个双文件 dir)")
 
     if moves:
         print("\nSample 前 5 个:")
@@ -130,7 +164,7 @@ def main() -> int:
 
     # 清理空的旧 dir
     cleaned = 0
-    for d in sorted(PHOTO_VIDEOS.rglob("*"), reverse=True()):
+    for d in sorted(PHOTO_VIDEOS.rglob("*"), reverse=True):
         if d.is_dir() and not any(d.iterdir()):
             d.rmdir()
             cleaned += 1
