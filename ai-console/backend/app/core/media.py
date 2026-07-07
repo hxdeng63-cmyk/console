@@ -173,7 +173,7 @@ def normalize_media_url(path: Optional[str]) -> Optional[str]:
     suffix = _strip_url_prefix(path)
     if suffix is not None:
         new_rel = _legacy_to_new_relative(suffix)
-        return "/data/" + new_rel
+        return ("/data/" + new_rel) if new_rel else path
 
     # form 5: absolute path
     if os.path.isabs(path):
