@@ -7,6 +7,8 @@ export function isDirectVideoUrl(url: string): boolean {
 }
 
 export function isLocalStream(sourceType: string, url: string): boolean {
+  // rtsp:// 浏览器原生不支持 (需要 hls.js / flv.js). 走 VideoPlayer 走 fallback
+  if (/^rtsp:\/\//i.test(url || '')) return false
   return sourceType === 'local' || isDirectVideoUrl(url)
 }
 
