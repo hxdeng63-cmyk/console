@@ -6,7 +6,9 @@ from fastapi.responses import JSONResponse
 
 router = APIRouter(prefix="/upload", tags=["文件上传"])
 
-UPLOAD_DIR = "/home/daxiong/code/console/docs"
+# Per migration: uploads now go under data/photo-videos/upload/{images,videos}/
+# (separated from detection captures to avoid namespace collision)
+UPLOAD_DIR = "/home/daxiong/code/console/data/photo-videos/upload"
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 ALLOWED_VIDEO_TYPES = {"video/mp4", "video/avi", "video/mov", "video/wmv"}
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
@@ -48,7 +50,7 @@ async def upload_file(file: UploadFile = File(...)):
         f.write(content)
 
     # Return URL
-    url = f"/uploads/{sub_dir}/{date_dir}/{filename}"
+    url = f"/data/photo-videos/upload/{sub_dir}/{date_dir}/{filename}"
 
     return JSONResponse(content={
         "url": url,

@@ -54,11 +54,13 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="AI Console API", version="1.0.0", lifespan=lifespan)
 
-# Static files for uploads
-UPLOAD_DIR = "/home/daxiong/code/console/docs"
-os.makedirs(os.path.join(UPLOAD_DIR, "images"), exist_ok=True)
-os.makedirs(os.path.join(UPLOAD_DIR, "videos"), exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+# Static files for media (post photo-videos migration)
+# Per .omc/specs/deep-interview-photo-videos-archive.md, all media is served
+# under /data/* mounted on DATA_DIR = /home/daxiong/code/console/data
+DATA_DIR = "/home/daxiong/code/console/data"
+os.makedirs(os.path.join(DATA_DIR, "photo-videos", "upload", "images"), exist_ok=True)
+os.makedirs(os.path.join(DATA_DIR, "photo-videos", "upload", "videos"), exist_ok=True)
+app.mount("/data", StaticFiles(directory=DATA_DIR), name="data")
 
 app.include_router(api_v1_router, prefix="/api/v1")
 

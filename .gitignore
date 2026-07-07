@@ -45,3 +45,18 @@ lerna-debug.log*
 # Misc
 remote-api-response.network-response
 screenshot-expand.cjs
+
+# Photo-videos content (kept outside git; whitelist .gitkeep for directory placeholders)
+data/photo-videos/*/
+data/photo-videos/*/*/
+data/photo-videos/*/*/*/
+!data/photo-videos/*/.gitkeep
+!data/photo-videos/*/*/.gitkeep
+!data/photo-videos/*/*/*/.gitkeep
+
+# Archive (no gitkeep, fully gitignored)
+data/archive/
+
+# Backups
+.omc/backups/media-pre-migration-*.tar.gz
+.omc/backups/.migration_log.jsonl

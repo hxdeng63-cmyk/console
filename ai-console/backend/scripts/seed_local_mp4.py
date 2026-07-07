@@ -1,7 +1,11 @@
 """Seed local MP4 data sources for sample devices.
 
-Matches devices by name against files in docs/monitoring/ and updates or creates
-a DataSource with access_type='本地' and rtsp_url='docs/monitoring/{device_name}.mp4'.
+Matches devices by name against files in data/archive/docs_monitoring/ and updates
+or creates a DataSource with access_type='本地' and
+rtsp_url='data/archive/docs_monitoring/{device_name}.mp4'.
+
+Per migration: monitoring fallback files moved from old monitoring dir to
+data/archive/docs_monitoring/.
 
 Run with:
     DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:5434/ai_console" python scripts/seed_local_mp4.py
@@ -21,7 +25,8 @@ from app.models.device import Device
 from app.models.data_source import DataSource
 
 
-MP4_DIR = Path(__file__).resolve().parents[3] / "docs" / "monitoring"
+# Per migration: monitoring fallback files moved to data/archive/docs_monitoring/
+MP4_DIR = Path(__file__).resolve().parents[3] / "data" / "archive" / "docs_monitoring"
 
 
 async def seed_local_mp4():
@@ -47,7 +52,7 @@ async def seed_local_mp4():
         updated = 0
         created = 0
         for device in devices:
-            rel_path = f"docs/monitoring/{device.name}.mp4"
+            rel_path = f"data/archive/docs_monitoring/{device.name}.mp4"
             ds_result = await db.execute(
                 select(DataSource).where(
                     DataSource.device_id == device.id,

@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.media import (
-    DOCS_ROOT as _DOCS_ROOT,
+    DATA_ROOT as _DATA_ROOT,
     normalize_media_url as _normalize_media_url,
     ensure_valid_media_url,
     file_size_for_path,
@@ -459,10 +459,17 @@ async def _create_file_for_event(
     if not normalized_url:
         return
 
-    relative_path = normalized_url[len("/uploads/"):]
+    # Per migration: normalize_media_url now returns /data/... URLs (not /uploads/).
+    # Strip the leading /data/ prefix to derive a DATA_ROOT-relative path.
+    if normalized_url.startswith("/data/"):
+        relative_path = normalized_url[len("/data/"):]
+    elif normalized_url.startswith("/uploads/"):
+        relative_path = normalized_url[len("/uploads/"):]
+    else:
+        relative_path = normalized_url.lstrip("/")
     file_name = os.path.basename(relative_path)
     file_type = Path(file_name).suffix.lstrip(".").lower() or None
-    storage_path = str(_DOCS_ROOT / relative_path)
+    storage_path = str(_DATA_ROOT / relative_path)
     file_size = file_size_for_path(relative_path)
 
     file_record = File(
@@ -517,7 +524,7 @@ async def ingest_algorithm_event(
     allowed_event_type_ids = await _get_allowed_event_type_ids(db, device_id)
     report_time = _parse_report_time(payload.get("timestamp"))
 
-    # Modules may send either *_url or *_path; normalize to /uploads/... URLs.
+    # Modules may send either *_url or *_path; normalize to /data/... URLs.
     image_url = _normalize_media_url(payload.get("image_url") or payload.get("image_path"))
     video_url = _normalize_media_url(payload.get("video_url") or payload.get("video_path"))
 
@@ -552,6 +559,10 @@ async def ingest_algorithm_event(
             image_url=image_url,
             video_url=video_url,
         )
+        # Attach the originating payload key (e.g. "jam", "flow") so the
+        # post-commit WS broadcast can use it as event_type_name without a
+        # second round-trip to the DB to resolve event_type_id.
+        event._payload_key = key  # type: ignore[attr-defined]
         db.add(event)
         created_events.append(event)
 
@@ -572,5 +583,39 @@ async def ingest_algorithm_event(
     await db.commit()
     for event in created_events:
         await db.refresh(event)
+
+    # Broadcast to WebSocket subscribers (MonitorWall / MonitorSingle).
+    # Imported lazily to avoid circular import at module load time.
+    # Wrapped in try/except so a broadcast failure never breaks the main
+    # ingest flow — the event is already persisted, the push is best-effort.
+    try:
+        from app.api.v1.ws_realtime import manager as _ws_manager
+
+        for event in created_events:
+            try:
+                event_detail_dict = (
+                    json.loads(event.event_detail) if event.event_detail else None
+                )
+            except (TypeError, ValueError):
+                event_detail_dict = None
+
+            try:
+                await _ws_manager.broadcast_event(
+                    device_id,
+                    {
+                        "type": "event",
+                        "id": event.id,
+                        "event_type": getattr(event, "_payload_key", None),
+                        "image_url": event.image_url,
+                        "video_url": event.video_url,
+                        "report_time": event.report_time.isoformat() if event.report_time else None,
+                        "event_detail": event_detail_dict,
+                    },
+                )
+            except Exception as broadcast_err:  # noqa: BLE001
+                logger.warning("WS broadcast failed for event %s: %s", event.id, broadcast_err)
+    except Exception as outer_err:  # noqa: BLE001
+        # ws_realtime import failed (e.g. circular import) — log and continue.
+        logger.warning("WS realtime unavailable, continuing without push: %s", outer_err)
 
     return {"event_ids": [event.id for event in created_events]}

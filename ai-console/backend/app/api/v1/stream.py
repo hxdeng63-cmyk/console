@@ -94,9 +94,26 @@ async def _run_register_devices_task(task_id: str, device_ids: list) -> None:
     await async_task_manager.update_task(task_id, "running")
 
     client = get_traffic_api_client()
-    devices_payload = [{"device_id": int(d)} for d in device_ids if str(d).isdigit()]
 
     async with AsyncSessionLocal() as db:
+        # traffic-api /stream/devices/register 要求每条 device 必带 rtsp_url（不带会静默丢弃）。
+        # 从 DataSource 查 5 个 device 的 rtsp_url，缺失的也保留（traffic-api 会自己 404）。
+        raw_int_ids = [int(d) for d in device_ids if str(d).isdigit()]
+        ds_rows = await db.execute(
+            select(DataSource.device_id, DataSource.rtsp_url).where(
+                DataSource.device_id.in_(raw_int_ids),
+                DataSource.deleted_at.is_(None),
+            )
+        )
+        rtsp_map: dict[int, str] = {}
+        for raw_id, rtsp_url in ds_rows.all():
+            rtsp_map[raw_id] = rtsp_url
+        devices_payload = [
+            {"device_id": did, "rtsp_url": rtsp_map[did]}
+            for did in raw_int_ids
+            if did in rtsp_map
+        ]
+
         results: list[dict] = []
         done = 0
         failed = 0
@@ -210,27 +227,52 @@ async def _resolve_device_stream(device_id: int, db: AsyncSession) -> dict | Non
 
 
 async def _local_file_fallback(device_id: int, db: AsyncSession) -> dict | None:
-    """traffic-api 不可用时，从 resolve_stream_url_for_device 解析本地文件 / HTTP 直连 URL。"""
+    """traffic-api 不可用时，从 resolve_stream_url_for_device 解析本地文件 / HTTP 直连 URL。
+
+    对 RTSP 源，若 data/archive/docs_monitoring/ 下有对应 device 的 mp4 兜底素材，
+    也直接返回 mp4 路径，避免被 traffic-api 鉴权阻塞。
+    """
     stream_url, access_type = await _find_stream_url(device_id, db)
     if not stream_url:
         return None
 
     # 本地文件路径：直接返回文件 URL
-    if stream_url.startswith("docs/") or stream_url.startswith("/") or access_type == "本地":
-        file_path = Path(stream_url) if stream_url.startswith("/") else _PROJECT_ROOT / stream_url
-        if not file_path.exists():
-            return None
+    # Per migration: stream_url is now /data/...  (legacy docs/ or /uploads/ also accepted for safety)
+    if (
+        stream_url.startswith("docs/")
+        or stream_url.startswith("/data/")
+        or stream_url.startswith("/uploads/")
+        or access_type == "本地"
+    ):
         if stream_url.startswith("docs/"):
-            flv_url = f"/uploads/{stream_url[5:]}"
-        elif stream_url.startswith("/"):
-            flv_url = stream_url
+            flv_url = f"/data/{stream_url[5:]}"
+        elif stream_url.startswith("/uploads/"):
+            flv_url = f"/data/{stream_url[len('/uploads/'):]}"
         else:
-            flv_url = f"/uploads/{stream_url}"
+            # /data/... or already an absolute /data/ URL
+            flv_url = stream_url
+        # Don't fail on file_path.exists() — the frontend can handle 404.
+        # The main.py /data/ StaticFiles mount serves whatever is present.
 
         return {
             "device_id": device_id,
             "stream_name": None,
             "flv_url": flv_url,
+            "rtsp_url": stream_url,
+            "source_type": "local",
+        }
+
+    # RTSP 源：若 data/archive/docs_monitoring/<device_id>.mp4 存在（兜底素材），
+    # 直接返回 mp4 静态路径，前端 VideoStage 会走 MonitoringVideoPlayer（带 controls）。
+    # Per migration: public/monitoring/ → data/archive/docs_monitoring/
+    static_mp4 = (
+        _PROJECT_ROOT / "data" / "archive" / "docs_monitoring" / f"device_{device_id}.mp4"
+    )
+    if static_mp4.exists():
+        return {
+            "device_id": device_id,
+            "stream_name": None,
+            "flv_url": f"/data/archive/docs_monitoring/device_{device_id}.mp4",
             "rtsp_url": stream_url,
             "source_type": "local",
         }
