@@ -42,6 +42,11 @@ lerna-debug.log*
 # Virtual environment
 .venv/
 
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
 # Misc
 remote-api-response.network-response
 screenshot-expand.cjs
