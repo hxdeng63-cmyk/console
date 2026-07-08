@@ -102,18 +102,16 @@ export function useStreamRegistry() {
       if (!task_id) throw new Error('未返回任务 ID')
       startPoll(task_id, (status: any) => {
         const results = status.results || []
-        const newMap: Record<string, StreamInfo> = {}
+        let next = streamMap.value
         results.forEach((item: any) => {
-          const prefixedId = `device-${item.device_id}`
-          if (item.success) {
-            newMap[prefixedId] = {
-              url: withCacheBuster(item.flv_url, item.source_type || ''),
-              sourceType: item.source_type || '',
-              deviceFallbackUrl: item.device_fallback_url || undefined,
-            }
-          }
+          if (!item.success) return
+          next = setStreamMapEntry(next, item.device_id, {
+            url: withCacheBuster(item.flv_url, item.source_type || ''),
+            sourceType: item.source_type || '',
+            deviceFallbackUrl: item.device_fallback_url ?? null,
+          })
         })
-        streamMap.value = newMap
+        streamMap.value = next
       })
     } catch {
       streamRegistering.value = false

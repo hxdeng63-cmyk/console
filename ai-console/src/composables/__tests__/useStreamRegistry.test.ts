@@ -1,6 +1,6 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ref } from 'vue'
-import { setStreamMapEntry, _registerDeviceStreamForTest } from '../useStreamRegistry'
+import { setStreamMapEntry, _registerDeviceStreamForTest, useStreamRegistry } from '../useStreamRegistry'
 import * as streamApi from '@/api/stream'
 
 vi.mock('@/api/stream', () => ({
@@ -80,6 +80,46 @@ describe('registerDeviceStream (单条)', () => {
       ],
     })
     expect(streamMap.value['device-1'].deviceFallbackUrl).toBeNull()
+  })
+})
+
+describe('registerDeviceStreams (批量)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('批量路径: 写入多条 streamMap 条目,保留前置条目,deviceFallbackUrl 归一为 null / 字符串', async () => {
+    vi.mocked(streamApi.registerDevicesAsync).mockResolvedValue({ task_id: 't-batch-1' } as any)
+    vi.mocked(streamApi.getRegisterDevicesStatus).mockResolvedValue({
+      status: 'completed',
+      results: [
+        { device_id: 11, success: true, flv_url: 'http://x/a.flv', source_type: 'stream', device_fallback_url: '/a.mp4' },
+        { device_id: 22, success: true, flv_url: 'http://x/b.flv', source_type: 'local' },
+        { device_id: 33, success: true, flv_url: 'http://x/c.flv', source_type: 'stream', device_fallback_url: null },
+      ],
+    } as any)
+
+    const { streamMap, registerDeviceStreams } = useStreamRegistry()
+    // 预置一条,验证批量完成后仍保留
+    streamMap.value['device-99'] = { url: 'pre', sourceType: 'stream', deviceFallbackUrl: '/pre.mp4' }
+
+    await registerDeviceStreams(['11', '22', '33'])
+    // 触发 setInterval(2s) 一次 → 进入 onCompleted → 写 streamMap
+    await vi.advanceTimersByTimeAsync(2100)
+
+    // 后端给了 device_fallback_url → 字符串保留
+    expect(streamMap.value['device-11']).toMatchObject({
+      sourceType: 'stream',
+      deviceFallbackUrl: '/a.mp4',
+    })
+    // 后端未给 device_fallback_url → 归一为 null(不允许 undefined)
+    expect(streamMap.value['device-22'].deviceFallbackUrl).toBeNull()
+    expect(streamMap.value['device-33'].deviceFallbackUrl).toBeNull()
+    // 前置条目不被批量注册覆盖
+    expect(streamMap.value['device-99']).toMatchObject({ url: 'pre', deviceFallbackUrl: '/pre.mp4' })
   })
 })
 
