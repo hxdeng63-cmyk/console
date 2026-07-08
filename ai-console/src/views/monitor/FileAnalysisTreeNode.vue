@@ -45,6 +45,7 @@ import {
   OfficeBuilding,
   MapLocation,
   Calendar,
+  Folder,
   VideoCamera,
   Picture,
   ArrowRight
@@ -58,6 +59,7 @@ interface FileNode {
   isCompany?: boolean
   isRegion?: boolean
   isEventType?: boolean
+  isFolder?: boolean
   isFile?: boolean
   fileType?: '视频' | '图片'
   eventType?: string
@@ -95,6 +97,7 @@ const nodeIcon = computed(() => {
   if (props.node.isCompany) return OfficeBuilding
   if (props.node.isRegion) return MapLocation
   if (props.node.isEventType) return Calendar
+  if (props.node.isFolder) return Folder
   if (detectedFileType.value === '视频') return VideoCamera
   return Picture
 })
@@ -103,6 +106,7 @@ const iconClass = computed(() => {
   if (props.node.isCompany) return 'company-icon'
   if (props.node.isRegion) return 'region-icon'
   if (props.node.isEventType) return 'event-icon'
+  if (props.node.isFolder) return 'folder-icon'
   if (detectedFileType.value === '视频') return 'video-icon'
   return 'image-icon'
 })
@@ -192,6 +196,10 @@ const handleClick = () => {
 
 .event-icon {
   color: #F59E0B;
+}
+
+.folder-icon {
+  color: #60A5FA;
 }
 
 .video-icon {

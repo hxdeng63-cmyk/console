@@ -147,7 +147,7 @@ import {
   OfficeBuilding, MapLocation, VideoCamera, Picture,
   ZoomIn, VideoPlay, Calendar
 } from '@element-plus/icons-vue'
-import { getFileTree } from '@/api/files.js'
+import { getFileTree, downloadFile } from '@/api/files.js'
 import { getEventTypes } from '@/api/event-types.js'
 import { getEventTypeDisplayName } from '@/utils/eventType'
 
@@ -275,8 +275,13 @@ const openVideoPreview = (row: FileNode) => {
 }
 
 // 操作
-const handleExport = (row: FileNode) => {
-  ElMessage.success(`开始导出文件：${row.name}`)
+const handleExport = async (row: FileNode) => {
+  try {
+    await downloadFile(Number(row.id), row.name)
+    ElMessage.success(`已导出：${row.name}`)
+  } catch (err) {
+    ElMessage.error(`导出失败：${(err as Error).message}`)
+  }
 }
 
 const handleDelete = (row: FileNode) => {

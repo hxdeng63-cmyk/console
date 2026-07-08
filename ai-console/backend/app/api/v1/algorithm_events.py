@@ -485,14 +485,17 @@ async def _create_file_for_event(
     device_name: str,
     timestamp: str,
     salt: str,
+    tmp_pairs: list[tuple[Path, Path]],
 ) -> None:
-    """拉 traffic-api 文件 → 写到 data/photo-videos/{event}/{det_id}/ + 创建 File 记录。
+    """两阶段写：先写 .tmp，DB 入库仍指向 final，tmp_pairs 留给 caller commit 后 rename。
 
     Args:
         event_name: e.g. "pedestrian" (from event_type.name)
         device_name: e.g. "北区-设备1" (from device.name)
         timestamp: e.g. "20260701123045" (from report_time)
         salt: 每 ingest batch 唯一 (uuid4 hex), 防并发同秒冲突
+        tmp_pairs: 调用方传入的空 list；写盘成功后追加 (tmp_path, save_path)，
+                   供 caller 在 db.commit() 成功后原子 rename。
     """
     if not url:
         return
@@ -502,20 +505,38 @@ async def _create_file_for_event(
     save_path = detection_storage_path(event_name, device_name, timestamp, salt, file_kind)
     new_url = detection_url(event_name, device_name, timestamp, salt, file_kind)
 
-    # 拉 traffic-api 文件 → 写到新路径 (失败时 File 记录仍创建, size=None)
-    await _fetch_and_save_media(url, save_path)
-    file_size = save_path.stat().st_size if save_path.exists() else None
+    # [两阶段] 先写 .tmp；DB commit 成功后才由 caller rename 到 final。
+    # 这样 commit 失败时不需要回滚磁盘（.tmp 已被 caller 删掉），无孤儿文件。
+    tmp_path = save_path.with_suffix(save_path.suffix + ".tmp")
+    success = await _fetch_and_save_media(url, tmp_path)
+    if not success or not tmp_path.exists():
+        return  # 失败不入库，tmp 也不留
+
+    file_size = tmp_path.stat().st_size
 
     file_record = File(
         warning_event_id=warning_event.id,
         source_type=source_type.value,
         file_name=f"{file_kind}.{ext}",
-        storage_path=str(save_path),
+        file_type=file_kind,  # "image" or "video"（与 model 字段类型一致）
+        storage_path=str(save_path),  # 指向最终路径（DB 提交后才存在）
         url=new_url,
         file_size_bytes=file_size,
         device_id=device_id,
     )
     db.add(file_record)
+
+    # [方案 C] ingest 落地成功后,把 warning_event.image_url / video_url 同步覆盖成本地 URL。
+    # 原始来源 URL 用完即丢(来源服务可能挂),所有读取方都拿本地可显示的 /data/... 路径。
+    # 只在当前字段还是"原始 URL"(非空且非 /data/ 前缀)时覆盖,避免无谓写。
+    if file_kind == "image":
+        if warning_event.image_url and not warning_event.image_url.startswith("/data/"):
+            warning_event.image_url = new_url
+    elif file_kind == "video":
+        if warning_event.video_url and not warning_event.video_url.startswith("/data/"):
+            warning_event.video_url = new_url
+
+    tmp_pairs.append((tmp_path, save_path))
 
 
 @router.post("/ingest", status_code=status.HTTP_201_CREATED)
@@ -614,20 +635,45 @@ async def ingest_algorithm_event(
     # Explicitly create File records for every event with media URLs.
     # [NEW] 传 event_name (来自 _EVENT_KEY_TO_TYPE) + device_name + timestamp + salt
     # 生成 data/photo-videos/{event}/{event}_{device}_{ts}_{uuid8}/image.jpg|video.mp4
+    # [两阶段] tmp_pairs 收集 (tmp_path, save_path)；commit 成功后才 rename 到 final。
+    tmp_pairs: list[tuple[Path, Path]] = []
     for event in created_events:
         event_name = event._payload_key  # e.g. "pedestrian", "accident"
         await _create_file_for_event(
             db, event, image_url, FileSourceType.WARNING_EVENT_IMAGE,
             device_id, event_name=event_name, device_name=device_name,
-            timestamp=timestamp, salt=salt,
+            timestamp=timestamp, salt=salt, tmp_pairs=tmp_pairs,
         )
         await _create_file_for_event(
             db, event, video_url, FileSourceType.WARNING_EVENT_VIDEO,
             device_id, event_name=event_name, device_name=device_name,
-            timestamp=timestamp, salt=salt,
+            timestamp=timestamp, salt=salt, tmp_pairs=tmp_pairs,
         )
 
-    await db.commit()
+    # [两阶段] DB commit + 磁盘 rename 生命周期：
+    #   - commit 失败 → 清掉所有 .tmp + rollback + raise（无孤儿文件）
+    #   - commit 成功 → 原子 rename .tmp → final（POSIX rename 同分区原子）
+    try:
+        await db.commit()
+    except Exception as commit_err:
+        for tmp_path, _ in tmp_pairs:
+            tmp_path.unlink(missing_ok=True)
+        await db.rollback()
+        logger.error(
+            f"ingest commit 失败，已清理 {len(tmp_pairs)} 个 .tmp 文件: {commit_err}"
+        )
+        raise
+
+    # rename 在 commit 之后；单条失败不影响其他 rename
+    for tmp_path, final_path in tmp_pairs:
+        try:
+            os.rename(tmp_path, final_path)
+        except OSError as rename_err:
+            logger.error(
+                f"rename 失败 {tmp_path.name} → {final_path.name}: {rename_err} "
+                f"(DB 已提交，需要 cleanup 工具扫 .tmp)"
+            )
+
     for event in created_events:
         await db.refresh(event)
 

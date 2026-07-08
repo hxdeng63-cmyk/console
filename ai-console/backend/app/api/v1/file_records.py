@@ -1,4 +1,5 @@
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func, or_
@@ -170,39 +171,59 @@ async def get_file_tree(
         query = query.where(File.source_type == source_type)
     rows = (await db.execute(query)).all()
 
-    # 5. 聚合 file：org_id -> region_id -> {event_type_name -> [file nodes]}
-    files_by_org_region: dict = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
-    # 退化路径：org 或 region 缺失的 file 单独聚合
+    # 5. 聚合 file：org_id -> region_id -> {event_type_name -> {folder_name -> [file nodes]}}
+    #    folder_name = Path(storage_path).parent.name（per-detection 文件夹名）
+    files_by_org_region: dict = defaultdict(
+        lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+    )
+    # 退化路径：org 或 region 缺失的 file 单独聚合，按 (event_type, folder) 二元组分桶
     fallback_files: dict = defaultdict(list)
 
     for file_record, device, region, org, warning_event, event_type in rows:
         event_type_name = event_type.name if event_type else "未知事件类型"
+        folder_name = (
+            Path(file_record.storage_path).parent.name
+            if file_record.storage_path
+            else "未分组"
+        )
+        # 归一化 fileType 为前端期望的中文：image/None → 图片；video → 视频
+        _raw_type = (file_record.file_type or "").lower()
+        _display_type = "图片" if _raw_type in ("image", "图片") else "视频"
         file_node = {
             "id": file_record.id,
             "name": file_record.file_name,
             "isFile": True,
-            "fileType": file_record.file_type or "视频",
+            "fileType": _display_type,
             "eventType": event_type_name,
             "previewUrl": ensure_valid_media_url(file_record.url) or "",
             "filePath": ensure_valid_media_url(file_record.storage_path) or "",
         }
         if org and region:
-            files_by_org_region[org.id][region.id][event_type_name].append(file_node)
+            files_by_org_region[org.id][region.id][event_type_name][folder_name].append(file_node)
         else:
-            fallback_files[event_type_name].append(file_node)
+            fallback_files[(event_type_name, folder_name)].append(file_node)
 
     # 6. 递归 attach files 到叶子 region
     def attach_files(region_node: dict, region_files: dict) -> None:
         if not region_node.get("children"):  # 叶子
             etype_files = region_files.get(region_node["id"], {})
-            for etype_name, files in etype_files.items():
-                if files:
-                    region_node["children"].append({
-                        "id": f"region-{region_node['id']}-etype-{etype_name}",
-                        "name": etype_name,
-                        "isEventType": True,
+            for etype_name, folder_files in etype_files.items():
+                if not folder_files:
+                    continue
+                etype_node = {
+                    "id": f"region-{region_node['id']}-etype-{etype_name}",
+                    "name": etype_name,
+                    "isEventType": True,
+                    "children": [],
+                }
+                for folder_name, files in folder_files.items():
+                    etype_node["children"].append({
+                        "id": f"region-{region_node['id']}-etype-{etype_name}-folder-{folder_name}",
+                        "name": folder_name,
+                        "isFolder": True,
                         "children": files,
                     })
+                region_node["children"].append(etype_node)
         else:
             for child in region_node["children"]:
                 attach_files(child, region_files)
@@ -238,14 +259,29 @@ async def get_file_tree(
             "isRegion": True,
             "children": [],
         }
-        for etype_name, files in fallback_files.items():
-            if files:
-                unknown_region_node["children"].append({
+        for (etype_name, folder_name), files in fallback_files.items():
+            if not files:
+                continue
+            # 找或创建对应的 etype 节点
+            etype_node = next(
+                (c for c in unknown_region_node["children"]
+                 if c.get("name") == etype_name and c.get("isEventType")),
+                None,
+            )
+            if etype_node is None:
+                etype_node = {
                     "id": f"region-unknown-etype-{etype_name}",
                     "name": etype_name,
                     "isEventType": True,
-                    "children": files,
-                })
+                    "children": [],
+                }
+                unknown_region_node["children"].append(etype_node)
+            etype_node["children"].append({
+                "id": f"region-unknown-etype-{etype_name}-folder-{folder_name}",
+                "name": folder_name,
+                "isFolder": True,
+                "children": files,
+            })
         if unknown_region_node["children"]:
             unknown_node["children"].append(unknown_region_node)
             result.append(unknown_node)
