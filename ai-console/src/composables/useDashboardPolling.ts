@@ -51,6 +51,8 @@ export function useDashboardPolling(channel: Ref<string>) {
   })
   const deploymentData = ref<any[]>([])
   const dashboardLoading = ref(false)
+  /** 实时事件流（WebSocket 推送），用于 VideoStage bbox 绘制。尚未接入 WS，留 null。 */
+  const realtimeEvent = ref<{ event_detail?: Record<string, any> | null } | null>(null)
 
   async function fetchAlarms(rawId?: number) {
     try {
@@ -219,6 +221,7 @@ export function useDashboardPolling(channel: Ref<string>) {
     eventStats,
     deploymentData,
     dashboardLoading,
+    realtimeEvent,
     fetchDashboardData,
     fetchAlarms,
     pause,
