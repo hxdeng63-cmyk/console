@@ -7,12 +7,6 @@ export interface ChannelItem {
   name: string
 }
 
-function rawIdFromChannel(id: string): number {
-  if (!id) return 0
-  const n = Number(id.replace(/^device-/, ''))
-  return Number.isNaN(n) ? 0 : n
-}
-
 export function useCurrentStream(
   channel: Ref<string>,
   channels: Ref<ChannelItem[]>,
