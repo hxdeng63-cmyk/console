@@ -195,7 +195,7 @@ async function fetchDeviceTree() {
       for (const n of nodes || []) {
         if (n.level === 'device') {
           const id = `device-${n.id}`
-          const prefix = path.join('-').replace('-', ' ')  // "海东公司-大学城北-北区" → "海东公司 大学城北-北区"
+          const prefix = path.join('-').replaceAll('-', ' ')  // "海东公司-大学城北-北区" → "海东公司 大学城北 北区"
           channelList.push({ id, name: `${prefix}-${n.name}` })
           const companyName = path[0] || ''
           if (!byCompany.has(companyName)) byCompany.set(companyName, [])
