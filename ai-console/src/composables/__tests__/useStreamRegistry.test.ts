@@ -44,8 +44,8 @@ describe('registerDeviceStream (单条)', () => {
         },
       ],
     })
-    expect(streamMap.value['device-42']).toEqual({
-      url: 'http://x/flv',
+    expect(streamMap.value['device-42']).toMatchObject({
+      url: expect.stringMatching(/^http:\/\/x\/flv\?_t=\d+$/),
       sourceType: 'stream',
       deviceFallbackUrl: '/x.mp4',
     })

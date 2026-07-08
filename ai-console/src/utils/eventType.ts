@@ -8,7 +8,7 @@
 export const EVENT_TYPE_NAME_MAP: Record<string, string> = {
   jam: '交通阻塞',
   anomaly: '异常停车',
-  flow: '流量统计',
+  flow: '车流量',
   reverse: '逆向行驶',
   pedestrian: '行人闯入',
   accident: '疑似事故',

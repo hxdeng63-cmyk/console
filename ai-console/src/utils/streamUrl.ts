@@ -12,8 +12,7 @@ export function isLocalStream(sourceType: string, url: string): boolean {
   return sourceType === 'local' || isDirectVideoUrl(url)
 }
 
-export function withCacheBuster(url: string, sourceType: string): string {
-  if (sourceType !== 'local') return url
+export function withCacheBuster(url: string, _sourceType: string): string {
   if (!url) return url
   const separator = url.includes('?') ? '&' : '?'
   return `${url}${separator}_t=${Date.now()}`

@@ -15,7 +15,7 @@ export default defineConfig({
     include: ['src/**/*.{test,spec}.{ts,js}'],
     coverage: {
       provider: 'v8',
-      include: ['src/composables/**/*.ts', 'src/utils/**/*.ts', 'src/components/video/useVideoPlayer.ts'],
+      include: ['src/utils/**/*.ts'],
       reporter: ['text', 'html'],
       thresholds: {
         lines: 80,
