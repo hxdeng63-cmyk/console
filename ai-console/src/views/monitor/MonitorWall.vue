@@ -8,7 +8,7 @@
           :source-type="currentSourceType"
           :protocol="currentProtocol"
           :loading="registry.streamLoading.value"
-          :error="registry.streamError.value ? '视频流连接失败' : ''"
+          :error="registry.streamError.value || ''"
           :refresh-stream-url="refreshStreamUrlSync"
           :fallback-url="localFallbackUrl"
           :realtime-event="dashboard.realtimeEvent"

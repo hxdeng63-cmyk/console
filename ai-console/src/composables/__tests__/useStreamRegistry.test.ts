@@ -15,7 +15,7 @@ describe('registerDeviceStream (单条)', () => {
     const streamMap = ref<Record<string, any>>({})
     const streamRegistering = ref(false)
     const streamLoading = ref(false)
-    const streamError = ref(false)
+    const streamError = ref<string | null>(null)
     const pendingRawIds = ref<Set<string>>(new Set())
     let pollCb: any = null
     const startPoll = (_id: string, cb: any) => { pollCb = cb }
@@ -57,7 +57,7 @@ describe('registerDeviceStream (单条)', () => {
     const streamMap = ref<Record<string, any>>({})
     const streamRegistering = ref(false)
     const streamLoading = ref(false)
-    const streamError = ref(false)
+    const streamError = ref<string | null>(null)
     const pendingRawIds = ref<Set<string>>(new Set())
     let pollCb: any = null
     const startPoll = (_id: string, cb: any) => { pollCb = cb }
@@ -120,6 +120,49 @@ describe('registerDeviceStreams (批量)', () => {
     expect(streamMap.value['device-33'].deviceFallbackUrl).toBeNull()
     // 前置条目不被批量注册覆盖
     expect(streamMap.value['device-99']).toMatchObject({ url: 'pre', deviceFallbackUrl: '/pre.mp4' })
+  })
+})
+
+describe('streamError 错误码字符串', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('useStreamRegistry 默认 streamError 为字符串类型(null)', () => {
+    const { streamError } = useStreamRegistry()
+    // 类型从 boolean 改为 string | null,默认 null
+    expect(streamError.value).toBeNull()
+  })
+
+  it('批量注册 poll 失败时,streamError 应被设置为错误消息字符串(非 false)', async () => {
+    vi.mocked(streamApi.registerDevicesAsync).mockResolvedValue({ task_id: 't-err' } as any)
+    vi.mocked(streamApi.getRegisterDevicesStatus).mockResolvedValue({
+      status: 'failed',
+      results: [],
+    } as any)
+
+    const { streamError, registerDeviceStreams } = useStreamRegistry()
+    await registerDeviceStreams(['1'])
+    await vi.advanceTimersByTimeAsync(2100)
+
+    // 类型为 string | null;失败时必须是 truthy 字符串(包含错误码或关键字)
+    expect(typeof streamError.value).toBe('string')
+    expect(streamError.value).not.toBe('')
+  })
+
+  it('批量注册 poll 抛错时,streamError 也应被设置为字符串', async () => {
+    vi.mocked(streamApi.registerDevicesAsync).mockResolvedValue({ task_id: 't-throw' } as any)
+    vi.mocked(streamApi.getRegisterDevicesStatus).mockRejectedValue(new Error('500 server error'))
+
+    const { streamError, registerDeviceStreams } = useStreamRegistry()
+    await registerDeviceStreams(['1'])
+    await vi.advanceTimersByTimeAsync(2100)
+
+    expect(typeof streamError.value).toBe('string')
+    expect(streamError.value).not.toBe('')
   })
 })
 

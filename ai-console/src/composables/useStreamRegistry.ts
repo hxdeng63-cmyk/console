@@ -33,7 +33,7 @@ export function useStreamRegistry() {
   const streamMap = ref<Record<string, StreamInfo>>({})
   const streamRegistering = ref(false)
   const streamLoading = ref(false)
-  const streamError = ref(false)
+  const streamError = ref<string | null>(null)
   const pendingRawIds = ref<Set<string>>(new Set())
   const pollTimer = ref<number | null>(null)
 
@@ -65,15 +65,15 @@ export function useStreamRegistry() {
           if (status.status === 'completed') {
             onCompleted(status)
           } else {
-            streamError.value = true
+            streamError.value = `注册失败:${status.error || status.status}`
           }
           flushPending()
         }
-      } catch {
+      } catch (err: any) {
         clearPoll()
         streamRegistering.value = false
         streamLoading.value = false
-        streamError.value = true
+        streamError.value = err?.message ? `轮询异常:${err.message}` : '轮询异常'
         flushPending()
       }
     }, POLL_INTERVAL_MS)
@@ -96,7 +96,7 @@ export function useStreamRegistry() {
     if (rawIds.length === 0 || streamRegistering.value) return
     streamRegistering.value = true
     streamLoading.value = true
-    streamError.value = false
+    streamError.value = null
     try {
       const { task_id }: any = await registerDevicesAsync(rawIds)
       if (!task_id) throw new Error('未返回任务 ID')
@@ -113,10 +113,10 @@ export function useStreamRegistry() {
         })
         streamMap.value = next
       })
-    } catch {
+    } catch (err: any) {
       streamRegistering.value = false
       streamLoading.value = false
-      streamError.value = true
+      streamError.value = err?.message ? `批量注册失败:${err.message}` : '批量注册失败'
       flushPending()
     }
   }
@@ -143,7 +143,7 @@ export async function _registerDeviceStreamForTest(
     streamMap: Ref<Record<string, StreamInfo>>
     streamRegistering: Ref<boolean>
     streamLoading: Ref<boolean>
-    streamError: Ref<boolean>
+    streamError: Ref<string | null>
     pendingRawIds: Ref<Set<string>>
     clearPoll: () => void
     startPoll: (taskId: string, cb: (s: any) => void) => void
@@ -157,14 +157,16 @@ export async function _registerDeviceStreamForTest(
   }
   stateRefs.streamRegistering.value = true
   stateRefs.streamLoading.value = true
-  stateRefs.streamError.value = false
+  stateRefs.streamError.value = null
   try {
     const { task_id }: any = await registerDevicesAsync([rawId])
     if (!task_id) throw new Error('未返回任务 ID')
     stateRefs.startPoll(task_id, (status: any) => {
       const item = (status.results || []).find((r: any) => String(r.device_id) === rawId)
       if (!item || !item.success) {
-        stateRefs.streamError.value = true
+        stateRefs.streamError.value = item?.error
+          ? `设备流注册失败:${item.error}`
+          : '设备流注册失败'
         return
       }
       const sourceType = item.source_type || ''
@@ -174,10 +176,10 @@ export async function _registerDeviceStreamForTest(
         deviceFallbackUrl: item.device_fallback_url ?? null,
       })
     })
-  } catch {
+  } catch (err: any) {
     stateRefs.streamRegistering.value = false
     stateRefs.streamLoading.value = false
-    stateRefs.streamError.value = true
+    stateRefs.streamError.value = err?.message ? `设备流注册失败:${err.message}` : '设备流注册失败'
     stateRefs.flushPending()
   }
 }
