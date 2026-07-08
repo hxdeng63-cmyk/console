@@ -29,7 +29,7 @@ const props = defineProps<{
   url: string
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   (e: 'update:modelValue', v: boolean): void
 }>()
 
