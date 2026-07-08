@@ -97,7 +97,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { useStreamRegistry } from '@/composables/useStreamRegistry'
+import { setStreamMapEntry, useStreamRegistry } from '@/composables/useStreamRegistry'
 import { useDashboardPolling } from '@/composables/useDashboardPolling'
 import { useTaskPolling } from '@/composables/useTaskPolling'
 import { useStopPoll } from '@/composables/useStopPoll'
@@ -334,14 +334,11 @@ async function startSelectedAlgorithm(): Promise<void> {
           try {
             const info: any = await getDeviceFlvUrl(rid)
             if (!info?.flv_url) return
-            registry.streamMap.value = {
-              ...registry.streamMap.value,
-              [`device-${rid}`]: {
-                url: info.flv_url,
-                sourceType: info.source_type || 'stream',
-                deviceFallbackUrl: info.device_fallback_url,
-              },
-            }
+            registry.streamMap.value = setStreamMapEntry(registry.streamMap.value, rid, {
+              url: info.flv_url,
+              sourceType: info.source_type || 'stream',
+              deviceFallbackUrl: info.device_fallback_url ?? null,
+            })
           } catch (err) {
             console.warn('[MonitorWall] 启动后刷新 flv_url 失败', err)
           }
@@ -411,10 +408,11 @@ async function refreshStreamUrlSync(): Promise<string | null> {
   try {
     const info: any = await getDeviceFlvUrl(rid)
     if (info?.flv_url) {
-      registry.streamMap.value = {
-        ...registry.streamMap.value,
-        [`device-${rid}`]: { url: info.flv_url, sourceType: info.source_type || 'stream' },
-      }
+      registry.streamMap.value = setStreamMapEntry(registry.streamMap.value, rid, {
+        url: info.flv_url,
+        sourceType: info.source_type || 'stream',
+        deviceFallbackUrl: info.device_fallback_url ?? null,
+      })
       return info.flv_url
     }
     return null
@@ -439,10 +437,11 @@ async function refreshStreamMap() {
   try {
     const info: any = await getDeviceFlvUrl(rid)
     if (!info?.flv_url) return
-    registry.streamMap.value = {
-      ...registry.streamMap.value,
-      [`device-${rid}`]: { url: info.flv_url, sourceType: info.source_type || 'stream' },
-    }
+    registry.streamMap.value = setStreamMapEntry(registry.streamMap.value, rid, {
+      url: info.flv_url,
+      sourceType: info.source_type || 'stream',
+      deviceFallbackUrl: info.device_fallback_url ?? null,
+    })
   } catch (err: any) {
     console.warn('[MonitorWall] 网络错误回调刷新 streamMap 失败', err)
     if (err?.response?.status === 404) {
@@ -469,10 +468,11 @@ vueWatch(() => selectedChannel.value, async (rawId) => {
   try {
     const info: any = await getDeviceFlvUrl(rid)
     if (!info?.flv_url) return
-    registry.streamMap.value = {
-      ...registry.streamMap.value,
-      [`device-${rid}`]: { url: info.flv_url, sourceType: info.source_type || 'stream' },
-    }
+    registry.streamMap.value = setStreamMapEntry(registry.streamMap.value, rid, {
+      url: info.flv_url,
+      sourceType: info.source_type || 'stream',
+      deviceFallbackUrl: info.device_fallback_url ?? null,
+    })
   } catch (err: any) {
     console.warn('[MonitorWall] 拉取最新 flv_url 失败', err)
     if (err?.response?.status === 404) {
@@ -501,10 +501,11 @@ vueWatch(() => selectedAlgorithm.value, async (val) => {
   try {
     const info: any = await getDeviceFlvUrl(rid)
     if (!info?.flv_url) return
-    registry.streamMap.value = {
-      ...registry.streamMap.value,
-      [`device-${rid}`]: { url: info.flv_url, sourceType: info.source_type || 'stream' },
-    }
+    registry.streamMap.value = setStreamMapEntry(registry.streamMap.value, rid, {
+      url: info.flv_url,
+      sourceType: info.source_type || 'stream',
+      deviceFallbackUrl: info.device_fallback_url ?? null,
+    })
   } catch (err: any) {
     console.warn('[MonitorWall] 选算法后拉取最新 flv_url 失败', err)
     if (err?.response?.status === 404) {
