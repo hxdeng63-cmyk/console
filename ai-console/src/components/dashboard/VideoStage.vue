@@ -1,7 +1,22 @@
 <template>
   <div class="video-wrapper">
+    <!-- 状态灯 -->
+    <div class="status-light" :class="statusLightClass" data-test="status-light"></div>
+
     <div class="video-container">
-      <template v-if="device">
+      <!-- 错误优先覆盖 -->
+      <div v-if="error" class="overlay error" data-test="error">
+        <div class="error-text">{{ error }}</div>
+        <button class="retry-btn" @click="handleRetry" data-test="retry-btn">重试</button>
+      </div>
+
+      <!-- 加载覆盖 -->
+      <div v-else-if="loading" class="overlay loading" data-test="loading">
+        正在加载 ({{ protocolText }})...
+      </div>
+
+      <!-- 正常视频流 -->
+      <template v-else-if="device">
         <MonitoringVideoPlayer
           v-if="isNativeVideo"
           :src="videoUrl"
@@ -16,11 +31,8 @@
           :realtime-event="realtimeEvent"
           @hls-network-error="emit('hls-network-error')"
         />
-        <div v-else-if="loading" class="video-placeholder">
-          <span>正在连接视频流...</span>
-        </div>
         <div v-else class="video-placeholder">
-          <span style="color: #FF006E;">无法连接视频流，请检查设备配置</span>
+          <span>正在连接视频流...</span>
         </div>
       </template>
       <div v-else class="video-placeholder">
@@ -53,9 +65,9 @@ const props = defineProps<{
   device: Device | null
   videoUrl: string
   sourceType: string
-  protocol: string
+  protocol: 'flv' | 'hls'
   loading: boolean
-  error: boolean
+  error: string
   refreshStreamUrl?: () => Promise<string | null>
   // HLS 多次失败时回退到此 URL（由 backend stream API 返的 device_fallback_url 传入,
   //       实际形如 /data/monitoring/<device.name>.mp4）
@@ -65,6 +77,19 @@ const props = defineProps<{
 }>()
 
 const isNativeVideo = computed(() => isLocalStream(props.sourceType, props.videoUrl))
+
+const protocolText = computed(() => props.protocol.toUpperCase())
+
+const statusLightClass = computed(() => {
+  if (props.error) return 'error'
+  if (props.loading) return 'loading'
+  return 'online'
+})
+
+function handleRetry() {
+  // 通知父组件触发刷新
+  void props.refreshStreamUrl?.()
+}
 
 const emit = defineEmits<{
   (e: 'hls-network-error'): void
@@ -80,6 +105,7 @@ const emit = defineEmits<{
   border: 1px solid #00E5FF;
   border-radius: 4px;
   overflow: hidden;
+  position: relative;
 }
 .video-container {
   flex: 1;
@@ -95,6 +121,42 @@ const emit = defineEmits<{
   color: rgba(0, 229, 255, 0.4);
   font-size: 18px;
 }
+.status-light {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  z-index: 20;
+  pointer-events: none;
+}
+.status-light.online { background: #00FF88; box-shadow: 0 0 8px #00FF88; }
+.status-light.loading { background: #FFAA00; box-shadow: 0 0 8px #FFAA00; }
+.status-light.error { background: #FF006E; box-shadow: 0 0 8px #FF006E; }
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  z-index: 10;
+  gap: 16px;
+}
+.error-text { font-size: 16px; }
+.retry-btn {
+  padding: 8px 24px;
+  background: #00E5FF;
+  color: #000;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.retry-btn:hover { background: #00BFFF; }
 .video-corner {
   position: absolute;
   width: 20px;
