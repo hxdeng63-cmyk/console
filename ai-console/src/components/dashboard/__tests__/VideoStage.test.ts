@@ -88,4 +88,30 @@ describe('VideoStage', () => {
     expect(wrapper.text()).toContain('正在加载')
     expect(wrapper.text()).toContain('FLV')
   })
+
+  it('device=null + 无错误 + 无 loading 时,状态灯应显示 idle (灰色),而非 online', () => {
+    // 不再使用 vi.doMock — 直接 mount,默认 useVideoPlayer.hasError=true;
+    // 我们只关心状态灯和 placeholder 文字,不进入 useVideoPlayer 分支。
+    const wrapper = mount(VideoStage, {
+      props: {
+        device: null,
+        videoUrl: 'http://x/flv',
+        sourceType: 'stream',
+        protocol: 'hls',
+        loading: false,
+        error: '',
+        refreshStreamUrl: vi.fn(),
+        fallbackUrl: '',
+        realtimeEvent: ref(null),
+      },
+    })
+    const light = wrapper.find('[data-test="status-light"]')
+    expect(light.exists()).toBe(true)
+    // 状态灯不应呈现 green online
+    expect(light.classes()).not.toContain('online')
+    // 应当有 idle(灰色)类
+    expect(light.classes()).toContain('idle')
+    // 同时 placeholder 应显示"等待选择设备..."
+    expect(wrapper.text()).toContain('等待选择设备')
+  })
 })

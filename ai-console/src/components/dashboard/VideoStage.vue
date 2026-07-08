@@ -81,6 +81,7 @@ const isNativeVideo = computed(() => isLocalStream(props.sourceType, props.video
 const protocolText = computed(() => props.protocol.toUpperCase())
 
 const statusLightClass = computed(() => {
+  if (!props.device) return 'idle'
   if (props.error) return 'error'
   if (props.loading) return 'loading'
   return 'online'
@@ -134,6 +135,7 @@ const emit = defineEmits<{
 .status-light.online { background: #00FF88; box-shadow: 0 0 8px #00FF88; }
 .status-light.loading { background: #FFAA00; box-shadow: 0 0 8px #FFAA00; }
 .status-light.error { background: #FF006E; box-shadow: 0 0 8px #FF006E; }
+.status-light.idle { background: rgba(180, 210, 235, 0.4); box-shadow: none; }
 .overlay {
   position: absolute;
   inset: 0;
