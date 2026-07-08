@@ -96,6 +96,11 @@ declare module '@/api/deployment' {
     getStartAllStatus: (taskId: any) => Promise<any>
     start: (id: any, data: any) => Promise<any>
     startStatus: (id: any, taskId: any) => Promise<any>
+    stop: (id: any) => Promise<any>
+    stopStatus: (id: any, taskId: any) => Promise<any>
+    status: (id: any) => Promise<any>
+    restart: (id: any) => Promise<any>
+    restartStatus: (id: any, taskId: any) => Promise<any>
     listAlgorithms: (params?: any) => Promise<any>
     listServices: (params?: any) => Promise<any>
     listDevices: (params?: any) => Promise<any>
