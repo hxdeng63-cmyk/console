@@ -27,7 +27,7 @@
             >
               {{ formatCompliance(event.isCompliant) }}
             </span>
-            <span class="event-process-status">{{ statusText(event.processStatus) }}</span>
+            <span class="event-process-status">{{ statusText(event.processStatus || '') }}</span>
           </div>
           <div class="event-type">{{ event.type }}</div>
         </div>
