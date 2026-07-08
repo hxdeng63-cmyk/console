@@ -177,7 +177,7 @@
               </div>
               <div class="info-item">
                 <span class="label">区域名称：</span>
-                <span class="value">{{ regionPathMap[currentRecord?.regionName] || currentRecord?.regionName }}</span>
+                <span class="value">{{ (currentRecord?.regionName && regionPathMap[currentRecord.regionName]) || currentRecord?.regionName }}</span>
               </div>
               <div class="info-item">
                 <span class="label">设备名称：</span>
