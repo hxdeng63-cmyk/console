@@ -32,7 +32,7 @@
         </div>
         <div class="detail-row">
           <span class="detail-label">处理状态：</span>
-          <el-tag :type="statusTagType(alarm?.processStatus)" size="small">
+          <el-tag :type="statusTagType(alarm?.processStatus || '')" size="small">
             {{ statusText(alarm?.processStatus || '') }}
           </el-tag>
         </div>
