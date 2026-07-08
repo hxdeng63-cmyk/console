@@ -5,12 +5,29 @@ import { withCacheBuster } from '@/utils/streamUrl'
 export interface StreamInfo {
   url: string
   sourceType: string
-  /** 本地 fallback mp4 路径(HLS 失败时用); backend 从 DB device.name 构造,
-   * 不依赖 symlink, 跨机器可移植 */
-  deviceFallbackUrl?: string
+  /** 本地 fallback mp4 路径(HLS 失败时用); null = 后端未返; undefined = 未传。 */
+  deviceFallbackUrl?: string | null
 }
 
 const POLL_INTERVAL_MS = 2000
+
+// 私有/导出: 统一 streamMap 写入,强制 deviceFallbackUrl 字段,消除 5 处复制粘贴。
+// 允许 null(显式"后端未返"),不允许 undefined(避免漏传蔓延)。
+export function setStreamMapEntry(
+  prev: Record<string, StreamInfo>,
+  deviceId: string | number,
+  info: { url: string; sourceType?: string; deviceFallbackUrl?: string | null },
+): Record<string, StreamInfo> {
+  const prefixedId = `device-${deviceId}`
+  return {
+    ...prev,
+    [prefixedId]: {
+      url: info.url,
+      sourceType: info.sourceType || 'stream',
+      deviceFallbackUrl: info.deviceFallbackUrl ?? null,
+    },
+  }
+}
 
 export function useStreamRegistry() {
   const streamMap = ref<Record<string, StreamInfo>>({})
