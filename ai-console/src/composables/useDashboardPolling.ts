@@ -20,6 +20,8 @@ export interface DashboardData {
   downTraffic: string
   roadLevel: number
   roadLevelText: string
+  /** 能见度等级(0-10)。null = 后端无接口,前端保持占位。 */
+  visibilityLevel: number | null
 }
 
 const POLL_EVENT_MS = 3000
@@ -41,6 +43,7 @@ export function useDashboardPolling(channel: Ref<string>) {
     downTraffic: '--',
     roadLevel: 1,
     roadLevelText: '畅通',
+    visibilityLevel: null,
   })
   const eventStats = ref<{ total: number; legend: { name: string; value: number; color: string }[] }>({
     total: 0,
@@ -79,6 +82,7 @@ export function useDashboardPolling(channel: Ref<string>) {
     if (!rawId) return
     let upTraffic = '--'
     let downTraffic = '--'
+    let avgSpeed = '--'
     let roadLevel = 1
     let roadLevelText = '畅通'
     try {
@@ -94,6 +98,7 @@ export function useDashboardPolling(channel: Ref<string>) {
           const flow = JSON.parse(flowItem.eventDetail)
           if (flow.up_count !== undefined) upTraffic = String(flow.up_count)
           if (flow.down_count !== undefined) downTraffic = String(flow.down_count)
+          if (flow.avg_speed !== undefined) avgSpeed = String(flow.avg_speed)
         } catch {/* 解析失败保持默认 */}
       }
 
@@ -113,7 +118,7 @@ export function useDashboardPolling(channel: Ref<string>) {
         } catch {/* 解析失败保持默认 */}
       }
     } catch {/* api 层已记录 */}
-    statsData.value = { avgSpeed: '--', upTraffic, downTraffic, roadLevel, roadLevelText }
+    statsData.value = { avgSpeed, upTraffic, downTraffic, roadLevel, roadLevelText, visibilityLevel: null }
   }
 
   async function fetchEventStats(rawId: number) {

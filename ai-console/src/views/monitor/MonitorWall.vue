@@ -64,9 +64,11 @@
           />
           <LevelIndicator
             label="能见度等级"
-            :value="6"
+            :value="dashboard.statsData.value.visibilityLevel ?? 0"
             :max="10"
             :scale-labels="['0', '2', '4', '6', '8', '10']"
+            :status-text="dashboard.statsData.value.visibilityLevel === null ? '采集中' : ''"
+            :status-class="dashboard.statsData.value.visibilityLevel === null ? 'placeholder' : ''"
             gradient-class="visibility"
           />
         </div>
@@ -82,7 +84,11 @@
 
         <div class="panel-section quality-section">
           <span class="quality-label">视频质量检测</span>
-          <span class="status-tag online">在线</span>
+          <span
+            class="status-tag"
+            :class="qualityStatusClass"
+            data-test="quality-status"
+          >{{ qualityStatusText }}</span>
         </div>
       </div>
     </div>
@@ -392,6 +398,17 @@ async function handleStartAll() {
 
 useVisibilityResume(() => dashboard.pause(), () => dashboard.resume())
 
+// 视频质量检测: 接 registry.streamError 状态(离线/在线)。保留 online/offline CSS 类。
+// 后续若需 warning 中间态(例如 HLS 错误计数超阈值),可在此处叠加。
+const qualityStatusClass = computed(() => {
+  if (registry.streamError.value) return 'offline'
+  return 'online'
+})
+const qualityStatusText = computed(() => {
+  if (registry.streamError.value) return '离线'
+  return '在线'
+})
+
 // HLS 致命网络错误(403 token 失效 / 404 设备未注册)回调:
 // 重新拉一次 flv_url 覆盖 streamMap → useCurrentStream 重新算 url → VideoPlayer url watch
 // 触发 switchUrl → 加载新 url。如果新拉仍是 404,清掉 streamMap 让 VideoStage 显示提示。
@@ -568,4 +585,5 @@ onMounted(() => {
 .status-tag.online { background: rgba(82, 196, 26, 0.2); color: #00FF88; }
 .status-tag.offline { background: rgba(120, 130, 150, 0.2); color: rgba(180, 210, 235, 0.7); }
 .status-tag.warning { background: rgba(255, 0, 110, 0.2); color: #FF006E; }
+.level-status.placeholder { background: rgba(120, 130, 150, 0.2); color: rgba(180, 210, 235, 0.7); }
 </style>
