@@ -1,5 +1,87 @@
-import { describe, it, expect } from 'vitest'
-import { setStreamMapEntry } from '../useStreamRegistry'
+import { describe, it, expect, vi } from 'vitest'
+import { ref } from 'vue'
+import { setStreamMapEntry, _registerDeviceStreamForTest } from '../useStreamRegistry'
+import * as streamApi from '@/api/stream'
+
+vi.mock('@/api/stream', () => ({
+  registerDevicesAsync: vi.fn(),
+  getRegisterDevicesStatus: vi.fn(),
+}))
+
+describe('registerDeviceStream (单条)', () => {
+  it('写入 streamMap 时携带 deviceFallbackUrl', async () => {
+    vi.mocked(streamApi.registerDevicesAsync).mockResolvedValue({ task_id: 't1' } as any)
+
+    const streamMap = ref<Record<string, any>>({})
+    const streamRegistering = ref(false)
+    const streamLoading = ref(false)
+    const streamError = ref(false)
+    const pendingRawIds = ref<Set<string>>(new Set())
+    let pollCb: any = null
+    const startPoll = (_id: string, cb: any) => { pollCb = cb }
+    const clearPoll = () => {}
+    const flushPending = () => {}
+
+    await _registerDeviceStreamForTest('42', {
+      streamMap,
+      streamRegistering,
+      streamLoading,
+      streamError,
+      pendingRawIds,
+      clearPoll,
+      startPoll,
+      flushPending,
+    })
+    expect(pollCb).toBeTruthy()
+    pollCb!({
+      results: [
+        {
+          device_id: 42,
+          success: true,
+          flv_url: 'http://x/flv',
+          source_type: 'stream',
+          device_fallback_url: '/x.mp4',
+        },
+      ],
+    })
+    expect(streamMap.value['device-42']).toEqual({
+      url: 'http://x/flv',
+      sourceType: 'stream',
+      deviceFallbackUrl: '/x.mp4',
+    })
+  })
+
+  it('device_fallback_url 缺失时写入 null', async () => {
+    vi.mocked(streamApi.registerDevicesAsync).mockResolvedValue({ task_id: 't1' } as any)
+
+    const streamMap = ref<Record<string, any>>({})
+    const streamRegistering = ref(false)
+    const streamLoading = ref(false)
+    const streamError = ref(false)
+    const pendingRawIds = ref<Set<string>>(new Set())
+    let pollCb: any = null
+    const startPoll = (_id: string, cb: any) => { pollCb = cb }
+    const clearPoll = () => {}
+    const flushPending = () => {}
+
+    await _registerDeviceStreamForTest('1', {
+      streamMap,
+      streamRegistering,
+      streamLoading,
+      streamError,
+      pendingRawIds,
+      clearPoll,
+      startPoll,
+      flushPending,
+    })
+    pollCb!({
+      results: [
+        { device_id: 1, success: true, flv_url: 'http://x/flv', source_type: 'stream' },
+      ],
+    })
+    expect(streamMap.value['device-1'].deviceFallbackUrl).toBeNull()
+  })
+})
 
 describe('setStreamMapEntry', () => {
   it('writes entry with url + sourceType', () => {

@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { ref, type Ref } from 'vue'
 import { registerDevicesAsync, getRegisterDevicesStatus } from '@/api/stream'
 import { withCacheBuster } from '@/utils/streamUrl'
 
@@ -80,39 +80,16 @@ export function useStreamRegistry() {
   }
 
   async function registerDeviceStream(rawId: string) {
-    if (!rawId) return
-    if (streamRegistering.value) {
-      pendingRawIds.value.add(rawId)
-      return
-    }
-    streamRegistering.value = true
-    streamLoading.value = true
-    streamError.value = false
-    try {
-      const { task_id }: any = await registerDevicesAsync([rawId])
-      if (!task_id) throw new Error('未返回任务 ID')
-      startPoll(task_id, (status: any) => {
-        const item = (status.results || []).find((r: any) => String(r.device_id) === rawId)
-        if (!item || !item.success) {
-          streamError.value = true
-          return
-        }
-        const prefixedId = `device-${item.device_id}`
-        const sourceType = item.source_type || ''
-        streamMap.value = {
-          ...streamMap.value,
-          [prefixedId]: {
-            url: withCacheBuster(item.flv_url, sourceType),
-            sourceType,
-          },
-        }
-      })
-    } catch {
-      streamRegistering.value = false
-      streamLoading.value = false
-      streamError.value = true
-      flushPending()
-    }
+    return _registerDeviceStreamForTest(rawId, {
+      streamMap,
+      streamRegistering,
+      streamLoading,
+      streamError,
+      pendingRawIds,
+      clearPoll,
+      startPoll,
+      flushPending,
+    })
   }
 
   async function registerDeviceStreams(rawIds: string[]) {
@@ -158,5 +135,51 @@ export function useStreamRegistry() {
     registerDeviceStream,
     registerDeviceStreams,
     dispose,
+  }
+}
+
+// 测试 helper: 接受外部 ref,便于直接调用 registerDeviceStream 逻辑
+export async function _registerDeviceStreamForTest(
+  rawId: string,
+  stateRefs: {
+    streamMap: Ref<Record<string, StreamInfo>>
+    streamRegistering: Ref<boolean>
+    streamLoading: Ref<boolean>
+    streamError: Ref<boolean>
+    pendingRawIds: Ref<Set<string>>
+    clearPoll: () => void
+    startPoll: (taskId: string, cb: (s: any) => void) => void
+    flushPending: () => void
+  },
+) {
+  if (!rawId) return
+  if (stateRefs.streamRegistering.value) {
+    stateRefs.pendingRawIds.value.add(rawId)
+    return
+  }
+  stateRefs.streamRegistering.value = true
+  stateRefs.streamLoading.value = true
+  stateRefs.streamError.value = false
+  try {
+    const { task_id }: any = await registerDevicesAsync([rawId])
+    if (!task_id) throw new Error('未返回任务 ID')
+    stateRefs.startPoll(task_id, (status: any) => {
+      const item = (status.results || []).find((r: any) => String(r.device_id) === rawId)
+      if (!item || !item.success) {
+        stateRefs.streamError.value = true
+        return
+      }
+      const sourceType = item.source_type || ''
+      stateRefs.streamMap.value = setStreamMapEntry(stateRefs.streamMap.value, item.device_id, {
+        url: withCacheBuster(item.flv_url, sourceType),
+        sourceType,
+        deviceFallbackUrl: item.device_fallback_url ?? null,
+      })
+    })
+  } catch {
+    stateRefs.streamRegistering.value = false
+    stateRefs.streamLoading.value = false
+    stateRefs.streamError.value = true
+    stateRefs.flushPending()
   }
 }
